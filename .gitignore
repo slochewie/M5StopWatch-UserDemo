@@ -37,6 +37,7 @@
 # Build files
 build/
 cmake-build-*/
+/components/
 managed_components/
 
 # PlatformIO
@@ -59,3 +60,6 @@ bin/
 obj/
 
 *.code-workspace
+
+sdkconfig
+sdkconfig.old
