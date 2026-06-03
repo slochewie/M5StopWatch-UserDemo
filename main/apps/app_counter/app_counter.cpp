@@ -9,6 +9,7 @@
 #include <mooncake_log.h>
 #include <smooth_lvgl.hpp>
 #include <cstdio>
+#include "../../../components/counter_mqtt/counter_mqtt.h"
 
 using namespace mooncake;
 using namespace smooth_ui_toolkit::lvgl_cpp;
@@ -22,12 +23,14 @@ AppCounter::AppCounter()
 void AppCounter::onCreate()
 {
     mclog::tagInfo(getAppInfo().name, "on create");
+    counter_mqtt::begin();
 }
 
 void AppCounter::onOpen()
 {
     mclog::tagInfo(getAppInfo().name, "on open");
     _key_manager = std::make_unique<input::KeyManager>();
+    counter_mqtt::begin();
 
     LvglLockGuard lock;
     createUi();
@@ -50,6 +53,14 @@ void AppCounter::onRunning()
         decrement();
     } else if (event == input::KeyEvent::GoNext) {
         increment();
+    }
+
+    int32_t mqtt_value = 0;
+    if (counter_mqtt::takeLatestValue(mqtt_value)) {
+        _count = mqtt_value;
+        LvglLockGuard lock;
+        refreshValue();
+        refreshStatus();
     }
 
     const uint32_t now = GetHAL().millis();
@@ -109,7 +120,11 @@ void AppCounter::refreshStatus()
 
     _last_status_update = GetHAL().millis();
     char buffer[48];
-    std::snprintf(buffer, sizeof(buffer), "Bat %u%%   MQTT --", static_cast<unsigned>(GetHAL().getBatteryLevel()));
+    std::snprintf(buffer,
+                  sizeof(buffer),
+                  "Bat %u%%   %s",
+                  static_cast<unsigned>(GetHAL().getBatteryLevel()),
+                  counter_mqtt::statusText());
     lv_label_set_text(_label_status, buffer);
 }
 
