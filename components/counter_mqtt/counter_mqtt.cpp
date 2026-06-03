@@ -2,8 +2,12 @@
 
 #include "../../main/secrets.h"
 
+#include <esp_err.h>
+#include <esp_event.h>
 #include <esp_log.h>
+#include <esp_netif.h>
 #include <mqtt_client.h>
+#include <nvs_flash.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/portmacro.h>
 #include <algorithm>
@@ -20,8 +24,43 @@ esp_mqtt_client_handle_t s_client = nullptr;
 bool s_started = false;
 bool s_connected = false;
 bool s_has_latest = false;
+bool s_netif_ready = false;
 int32_t s_latest_value = 0;
 portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
+
+bool ensureNetworkStackReady()
+{
+    if (s_netif_ready) {
+        return true;
+    }
+
+    esp_err_t err = nvs_flash_init();
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_LOGW(TAG, "NVS init requested erase: %s", esp_err_to_name(err));
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        err = nvs_flash_init();
+    }
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(TAG, "nvs_flash_init failed: %s", esp_err_to_name(err));
+        return false;
+    }
+
+    err = esp_netif_init();
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(TAG, "esp_netif_init failed: %s", esp_err_to_name(err));
+        return false;
+    }
+
+    err = esp_event_loop_create_default();
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(TAG, "esp_event_loop_create_default failed: %s", esp_err_to_name(err));
+        return false;
+    }
+
+    s_netif_ready = true;
+    ESP_LOGI(TAG, "Network stack ready");
+    return true;
+}
 
 void setLatestValue(int32_t value)
 {
@@ -96,6 +135,10 @@ void mqttEventHandler(void* handler_args, esp_event_base_t base, int32_t event_i
 void begin()
 {
     if (s_started) {
+        return;
+    }
+
+    if (!ensureNetworkStackReady()) {
         return;
     }
 
