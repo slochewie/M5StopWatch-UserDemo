@@ -13,13 +13,16 @@ file(GLOB_RECURSE MY_SRCS
 set(MY_INCS
     "."
 )
-
 idf_component_register(
-    SRCS
+    SRCS 
         "main.cpp"
         ${MY_SRCS}
-    INCLUDE_DIRS
+    INCLUDE_DIRS 
         ${MY_INCS}
+    PRIV_REQUIRES
+        mqtt
+        esp_wifi
+        nvs_flash
     EMBED_FILES
         "assets/sfx/boot_sfx.bin"
     EMBED_TXTFILES
