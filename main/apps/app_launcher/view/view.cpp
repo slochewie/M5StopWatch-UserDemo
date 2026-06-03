@@ -186,7 +186,6 @@ static std::string _tag        = "LauncherView";
 static constexpr int _icon_gap = 466;
 static constexpr int _loop_copies       = 5;
 static constexpr int _center_copy_index = 2;
-static constexpr uint32_t _max_icon_px  = 120;
 
 static int _last_clicked_icon_pos_x = -1;
 static std::unique_ptr<PageIndicator> _page_indicator;
@@ -256,23 +255,6 @@ void LauncherView::init(std::vector<mooncake::AppProps_t> appPorps)
             if (props.info.icon != nullptr) {
                 _icon_images.push_back(std::make_unique<Image>(_icon_panels.back()->get()));
                 _icon_images.back()->setSrc(props.info.icon);
-
-                const lv_image_dsc_t* icon_dsc = static_cast<const lv_image_dsc_t*>(props.info.icon);
-                if (icon_dsc != nullptr && icon_dsc->header.w > 0 && icon_dsc->header.h > 0) {
-                    uint32_t scale_x = (_max_icon_px * 256U) / icon_dsc->header.w;
-                    uint32_t scale_y = (_max_icon_px * 256U) / icon_dsc->header.h;
-                    uint32_t scale   = scale_x < scale_y ? scale_x : scale_y;
-
-                    if (scale == 0) {
-                        scale = 1;
-                    }
-                    if (scale > 256) {
-                        scale = 256;
-                    }
-
-                    lv_image_set_scale(_icon_images.back()->get(), scale);
-                }
-
                 _icon_images.back()->setAlign(LV_ALIGN_CENTER);
             }
 
