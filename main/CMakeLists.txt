@@ -20,6 +20,12 @@ idf_component_register(
         ${MY_SRCS}
     INCLUDE_DIRS
         ${MY_INCS}
+    REQUIRES
+        smooth_ui_toolkit
+        lvgl
+        mqtt
+        esp_wifi
+        nvs_flash
     EMBED_FILES
         "assets/sfx/boot_sfx.bin"
     EMBED_TXTFILES
