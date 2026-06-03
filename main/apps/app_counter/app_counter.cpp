@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 #include "app_counter.h"
+#include <assets/assets.h>
 #include <hal/hal.h>
 #include <mooncake_log.h>
 #include <smooth_lvgl.hpp>
@@ -15,6 +16,7 @@ using namespace smooth_ui_toolkit::lvgl_cpp;
 AppCounter::AppCounter()
 {
     setAppInfo().name = "Counter";
+    setAppInfo().icon = (void*)&icon_counter;
 }
 
 void AppCounter::onCreate()
