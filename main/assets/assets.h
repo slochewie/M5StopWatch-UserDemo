@@ -20,6 +20,7 @@ LV_IMG_DECLARE(icon_setup);
 LV_IMG_DECLARE(icon_imu);
 LV_IMG_DECLARE(icon_fft);
 LV_IMG_DECLARE(icon_stopwatch);
+LV_IMG_DECLARE(icon_counter);
 LV_IMG_DECLARE(icon_badge);
 LV_IMG_DECLARE(icon_lucky_wheel);
 LV_IMG_DECLARE(icon_watch_face);
