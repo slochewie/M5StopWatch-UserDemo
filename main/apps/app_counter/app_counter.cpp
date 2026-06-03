@@ -87,7 +87,6 @@ void AppCounter::decrement()
 void AppCounter::reset()
 {
     _count = 0;
-    LvglLockGuard lock;
     refreshValue();
 }
 
@@ -131,7 +130,7 @@ void AppCounter::createUi()
     _label_value = lv_label_create(_panel);
     lv_label_set_text(_label_value, "0");
     lv_obj_set_style_text_color(_label_value, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(_label_value, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_font(_label_value, &lv_font_maple_mono_medium_48, 0);
     lv_obj_align(_label_value, LV_ALIGN_CENTER, 0, -55);
 
     _button_reset = lv_button_create(_panel);
