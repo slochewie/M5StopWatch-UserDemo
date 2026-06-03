@@ -26,8 +26,6 @@ extern "C" void app_main(void)
     ui_hal::on_get_tick([]() { return GetHAL().millis(); });
 
     GetMooncake().installApp(std::make_unique<AppLauncher>());
-    GetMooncake().installApp(std::make_unique<AppAlarmClock>());
-    GetMooncake().installApp(std::make_unique<AppWatchFace>());
     GetMooncake().installApp(std::make_unique<AppStopWatch>());
     GetMooncake().installApp(std::make_unique<AppCounter>());
     GetMooncake().installApp(std::make_unique<AppSetup>());
