@@ -46,6 +46,17 @@ void AppCounter::onRunning()
         return;
     }
 
+    // MQTT is the authoritative counter state. Drain any pending update
+    // before handling local button input so a button press cannot publish
+    // a stale _count value captured when the app first opened.
+    int32_t mqtt_value = 0;
+    if (counter_mqtt::takeLatestValue(mqtt_value)) {
+        _count = mqtt_value;
+        LvglLockGuard lock;
+        refreshValue();
+        refreshStatus();
+    }
+
     auto event = _key_manager->update();
     if (event == input::KeyEvent::GoHome) {
         close();
@@ -55,14 +66,6 @@ void AppCounter::onRunning()
         decrement();
     } else if (event == input::KeyEvent::GoNext) {
         increment();
-    }
-
-    int32_t mqtt_value = 0;
-    if (counter_mqtt::takeLatestValue(mqtt_value)) {
-        _count = mqtt_value;
-        LvglLockGuard lock;
-        refreshValue();
-        refreshStatus();
     }
 
     const uint32_t now = GetHAL().millis();
@@ -103,6 +106,7 @@ void AppCounter::reset()
 {
     _count = 0;
     (void)counter_mqtt::publishCounterValue(_count);
+    LvglLockGuard lock;
     refreshValue();
 }
 
