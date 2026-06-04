@@ -30,6 +30,7 @@ void AppCounter::onOpen()
     mclog::tagInfo(getAppInfo().name, "on open");
     _key_manager = std::make_unique<input::KeyManager>();
     _reset_requested = false;
+    _diagnostics_visible = false;
 
     {
         LvglLockGuard lock;
@@ -47,20 +48,15 @@ void AppCounter::onRunning()
         return;
     }
 
-    // MQTT is the authoritative counter state. Drain any pending update
-    // before handling local button input so a button press cannot publish
-    // a stale _count value captured when the app first opened.
     int32_t mqtt_value = 0;
     if (counter_mqtt::takeLatestValue(mqtt_value)) {
         _count = mqtt_value;
         LvglLockGuard lock;
         refreshValue();
         refreshStatus();
+        refreshDiagnostics();
     }
 
-    // The LVGL reset button callback only sets this flag. Do the actual
-    // MQTT publish and label refresh here, outside LVGL's event callback,
-    // to avoid UI/MQTT lock re-entry freezes.
     if (_reset_requested) {
         _reset_requested = false;
         reset();
@@ -71,16 +67,19 @@ void AppCounter::onRunning()
         close();
         return;
     }
-    if (event == input::KeyEvent::GoPrevious) {
-        decrement();
-    } else if (event == input::KeyEvent::GoNext) {
-        increment();
+    if (!_diagnostics_visible) {
+        if (event == input::KeyEvent::GoPrevious) {
+            decrement();
+        } else if (event == input::KeyEvent::GoNext) {
+            increment();
+        }
     }
 
     const uint32_t now = GetHAL().millis();
     if (now - _last_status_update > 1000) {
         LvglLockGuard lock;
         refreshStatus();
+        refreshDiagnostics();
     }
 }
 
@@ -89,6 +88,7 @@ void AppCounter::onClose()
     mclog::tagInfo(getAppInfo().name, "on close");
     _key_manager.reset();
     _reset_requested = false;
+    _diagnostics_visible = false;
 
     LvglLockGuard lock;
     destroyUi();
@@ -153,6 +153,54 @@ void AppCounter::refreshStatus()
     lv_label_set_text(_label_status, buffer);
 }
 
+void AppCounter::refreshDiagnostics()
+{
+    if (!_diagnostics_label) {
+        return;
+    }
+
+    const char* device = counter_mqtt::deviceName();
+    const char* ssid = counter_mqtt::wifiSsid();
+    const char* broker = counter_mqtt::brokerUri();
+    const char* topic = counter_mqtt::counterTopic();
+
+    if (device == nullptr || device[0] == '\0') device = "not set";
+    if (ssid == nullptr || ssid[0] == '\0') ssid = "not set";
+    if (broker == nullptr || broker[0] == '\0') broker = "not set";
+    if (topic == nullptr || topic[0] == '\0') topic = "not set";
+
+    char buffer[512];
+    std::snprintf(buffer,
+                  sizeof(buffer),
+                  "DIAGNOSTICS\n\n"
+                  "Device:\n%s\n\n"
+                  "Wi-Fi:\n%s\n\n"
+                  "MQTT:\n%s\n%s\n\n"
+                  "Topic:\n%s",
+                  device,
+                  ssid,
+                  counter_mqtt::statusText(),
+                  broker,
+                  topic);
+    lv_label_set_text(_diagnostics_label, buffer);
+}
+
+void AppCounter::showDiagnostics(bool show)
+{
+    _diagnostics_visible = show;
+    if (!_diagnostics_panel) {
+        return;
+    }
+
+    if (show) {
+        refreshDiagnostics();
+        lv_obj_remove_flag(_diagnostics_panel, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_move_foreground(_diagnostics_panel);
+    } else {
+        lv_obj_add_flag(_diagnostics_panel, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
 void AppCounter::createUi()
 {
     lv_obj_t* screen = lv_screen_active();
@@ -185,12 +233,42 @@ void AppCounter::createUi()
     lv_obj_center(reset_label);
 
     _label_status = lv_label_create(_panel);
+    lv_obj_add_flag(_label_status, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(_label_status, AppCounter::handleStatusClicked, LV_EVENT_CLICKED, this);
     lv_obj_set_style_text_color(_label_status, lv_color_hex(0xBFBFBF), 0);
     lv_obj_set_style_text_font(_label_status, &lv_font_montserrat_18, 0);
     lv_obj_set_style_text_align(_label_status, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(_label_status, LV_LABEL_LONG_DOT);
     lv_obj_set_width(_label_status, 360);
     lv_obj_align(_label_status, LV_ALIGN_BOTTOM_MID, 0, -28);
+
+    _diagnostics_panel = lv_obj_create(_panel);
+    lv_obj_set_size(_diagnostics_panel, 390, 390);
+    lv_obj_center(_diagnostics_panel);
+    lv_obj_set_style_bg_color(_diagnostics_panel, lv_color_hex(0x101010), 0);
+    lv_obj_set_style_border_color(_diagnostics_panel, lv_color_hex(0x444444), 0);
+    lv_obj_set_style_border_width(_diagnostics_panel, 2, 0);
+    lv_obj_set_style_radius(_diagnostics_panel, 22, 0);
+    lv_obj_set_style_pad_all(_diagnostics_panel, 18, 0);
+    lv_obj_add_flag(_diagnostics_panel, LV_OBJ_FLAG_HIDDEN);
+
+    _diagnostics_label = lv_label_create(_diagnostics_panel);
+    lv_obj_set_width(_diagnostics_label, 340);
+    lv_obj_set_style_text_color(_diagnostics_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(_diagnostics_label, &lv_font_montserrat_18, 0);
+    lv_label_set_long_mode(_diagnostics_label, LV_LABEL_LONG_WRAP);
+    lv_obj_align(_diagnostics_label, LV_ALIGN_TOP_MID, 0, 4);
+
+    _button_diagnostics_close = lv_button_create(_diagnostics_panel);
+    lv_obj_set_size(_button_diagnostics_close, 150, 54);
+    lv_obj_align(_button_diagnostics_close, LV_ALIGN_BOTTOM_MID, 0, -6);
+    lv_obj_set_style_radius(_button_diagnostics_close, 16, 0);
+    lv_obj_add_event_cb(_button_diagnostics_close, AppCounter::handleDiagnosticsCloseClicked, LV_EVENT_CLICKED, this);
+
+    lv_obj_t* close_label = lv_label_create(_button_diagnostics_close);
+    lv_label_set_text(close_label, "CLOSE");
+    lv_obj_set_style_text_font(close_label, &lv_font_montserrat_20, 0);
+    lv_obj_center(close_label);
 }
 
 void AppCounter::destroyUi()
@@ -198,6 +276,9 @@ void AppCounter::destroyUi()
     _label_value = nullptr;
     _label_status = nullptr;
     _button_reset = nullptr;
+    _diagnostics_label = nullptr;
+    _button_diagnostics_close = nullptr;
+    _diagnostics_panel = nullptr;
 
     if (_panel) {
         lv_obj_delete(_panel);
@@ -208,7 +289,23 @@ void AppCounter::destroyUi()
 void AppCounter::handleResetClicked(lv_event_t* event)
 {
     auto* app = static_cast<AppCounter*>(lv_event_get_user_data(event));
-    if (app) {
+    if (app && !app->_diagnostics_visible) {
         app->_reset_requested = true;
+    }
+}
+
+void AppCounter::handleStatusClicked(lv_event_t* event)
+{
+    auto* app = static_cast<AppCounter*>(lv_event_get_user_data(event));
+    if (app) {
+        app->showDiagnostics(true);
+    }
+}
+
+void AppCounter::handleDiagnosticsCloseClicked(lv_event_t* event)
+{
+    auto* app = static_cast<AppCounter*>(lv_event_get_user_data(event));
+    if (app) {
+        app->showDiagnostics(false);
     }
 }
