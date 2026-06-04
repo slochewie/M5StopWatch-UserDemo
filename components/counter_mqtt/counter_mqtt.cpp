@@ -327,8 +327,8 @@ bool publishCounterValue(int32_t value)
         value = 0;
     }
 
-    char payload[24];
-    std::snprintf(payload, sizeof(payload), "%ld", static_cast<long>(value));
+    char payload[96];
+    std::snprintf(payload, sizeof(payload), "{\"value\":%ld,\"updated_by\":\"m5stopwatch\"}", static_cast<long>(value));
 
     int msg_id = esp_mqtt_client_publish(s_client, COUNTER_STATE_TOPIC, payload, 0, 1, 1);
     if (msg_id < 0) {
