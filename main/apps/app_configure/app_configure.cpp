@@ -84,7 +84,7 @@ void AppConfigure::createUi()
     _label_status = lv_label_create(_panel);
     lv_obj_set_width(_label_status, 330);
     lv_label_set_long_mode(_label_status, LV_LABEL_LONG_WRAP);
-    lv_label_set_text_align(_label_status, LV_TEXT_ALIGN_CENTER);
+    lv_obj_set_style_text_align(_label_status, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_color(_label_status, lv_color_hex(0xBFBFBF), 0);
     lv_obj_set_style_text_font(_label_status, &lv_font_montserrat_18, 0);
     lv_obj_align(_label_status, LV_ALIGN_CENTER, 0, -30);
