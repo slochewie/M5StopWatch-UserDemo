@@ -29,6 +29,7 @@ void AppCounter::onOpen()
 {
     mclog::tagInfo(getAppInfo().name, "on open");
     _key_manager = std::make_unique<input::KeyManager>();
+    _reset_requested = false;
 
     {
         LvglLockGuard lock;
@@ -57,6 +58,14 @@ void AppCounter::onRunning()
         refreshStatus();
     }
 
+    // The LVGL reset button callback only sets this flag. Do the actual
+    // MQTT publish and label refresh here, outside LVGL's event callback,
+    // to avoid UI/MQTT lock re-entry freezes.
+    if (_reset_requested) {
+        _reset_requested = false;
+        reset();
+    }
+
     auto event = _key_manager->update();
     if (event == input::KeyEvent::GoHome) {
         close();
@@ -79,6 +88,7 @@ void AppCounter::onClose()
 {
     mclog::tagInfo(getAppInfo().name, "on close");
     _key_manager.reset();
+    _reset_requested = false;
 
     LvglLockGuard lock;
     destroyUi();
@@ -190,6 +200,6 @@ void AppCounter::handleResetClicked(lv_event_t* event)
 {
     auto* app = static_cast<AppCounter*>(lv_event_get_user_data(event));
     if (app) {
-        app->reset();
+        app->_reset_requested = true;
     }
 }
