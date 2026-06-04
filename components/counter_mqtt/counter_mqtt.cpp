@@ -22,7 +22,6 @@ namespace {
 
 static constexpr const char* TAG = "CounterMQTT";
 static constexpr const char* COUNTER_STATE_TOPIC = "counters/capacity/state";
-static constexpr const char* COUNTER_SET_TOPIC = "counters/capacity/set";
 static constexpr int WIFI_CONNECTED_BIT = BIT0;
 static constexpr int WIFI_FAIL_BIT = BIT1;
 static constexpr int WIFI_MAXIMUM_RETRY = 8;
@@ -331,13 +330,13 @@ bool publishCounterValue(int32_t value)
     char payload[24];
     std::snprintf(payload, sizeof(payload), "%ld", static_cast<long>(value));
 
-    int msg_id = esp_mqtt_client_publish(s_client, COUNTER_SET_TOPIC, payload, 0, 1, 0);
+    int msg_id = esp_mqtt_client_publish(s_client, COUNTER_STATE_TOPIC, payload, 0, 1, 1);
     if (msg_id < 0) {
         ESP_LOGW(TAG, "Publish failed: %ld", static_cast<long>(value));
         return false;
     }
 
-    ESP_LOGI(TAG, "Published %s = %ld", COUNTER_SET_TOPIC, static_cast<long>(value));
+    ESP_LOGI(TAG, "Published %s = %ld", COUNTER_STATE_TOPIC, static_cast<long>(value));
     return true;
 }
 
