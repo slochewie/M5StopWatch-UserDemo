@@ -11,5 +11,6 @@
 namespace configure_ap {
 
 bool run(const std::function<void(std::string_view)>& onLog);
+void requestStop();
 
 }  // namespace configure_ap
