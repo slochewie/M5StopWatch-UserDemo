@@ -40,6 +40,9 @@ constexpr const char* AP_URL = "http://192.168.4.1";
 constexpr EventBits_t EXIT_BIT = BIT0;
 constexpr const char* JSON_TYPE = "application/json";
 
+std::mutex g_session_mutex;
+EventGroupHandle_t g_active_event_group = nullptr;
+
 constexpr const char* CAPTIVE_URLS[] = {
     "/hotspot-detect.html", "/generate_204*", "/mobile/status.php", "/check_network_status.txt",
     "/ncsi.txt", "/fwlink/", "/connectivity-check.html", "/success.txt", "/portal.html",
@@ -184,6 +187,10 @@ public:
             log("Failed to create event group");
             return false;
         }
+        {
+            std::lock_guard<std::mutex> lock(g_session_mutex);
+            g_active_event_group = _event_group;
+        }
         if (!start_ap() || !start_server()) {
             stop();
             return false;
@@ -298,6 +305,12 @@ private:
 
     void stop()
     {
+        {
+            std::lock_guard<std::mutex> lock(g_session_mutex);
+            if (g_active_event_group == _event_group) {
+                g_active_event_group = nullptr;
+            }
+        }
         if (_server) {
             httpd_stop(_server);
             _server = nullptr;
@@ -429,6 +442,14 @@ private:
 bool run(const std::function<void(std::string_view)>& onLog)
 {
     return Session(onLog).run();
+}
+
+void requestStop()
+{
+    std::lock_guard<std::mutex> lock(g_session_mutex);
+    if (g_active_event_group != nullptr) {
+        xEventGroupSetBits(g_active_event_group, EXIT_BIT);
+    }
 }
 
 }  // namespace configure_ap
