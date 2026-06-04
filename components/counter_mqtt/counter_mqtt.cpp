@@ -182,6 +182,38 @@ void setLatestValue(int32_t value)
     portEXIT_CRITICAL(&s_lock);
 }
 
+bool parseCounterPayload(const char* payload, int32_t& value)
+{
+    if (payload == nullptr) {
+        return false;
+    }
+
+    char* end = nullptr;
+    long parsed = std::strtol(payload, &end, 10);
+    if (end != payload) {
+        value = static_cast<int32_t>(std::max<long>(parsed, 0));
+        return true;
+    }
+
+    const char* key = std::strstr(payload, "value");
+    if (key == nullptr) {
+        return false;
+    }
+
+    const char* colon = std::strchr(key, ':');
+    if (colon == nullptr) {
+        return false;
+    }
+
+    parsed = std::strtol(colon + 1, &end, 10);
+    if (end == colon + 1) {
+        return false;
+    }
+
+    value = static_cast<int32_t>(std::max<long>(parsed, 0));
+    return true;
+}
+
 void handleData(esp_mqtt_event_handle_t event)
 {
     if (event == nullptr || event->topic == nullptr || event->data == nullptr) {
@@ -193,23 +225,19 @@ void handleData(esp_mqtt_event_handle_t event)
         return;
     }
 
-    char payload[24] = {};
+    char payload[128] = {};
     const int copy_len = std::min(event->data_len, static_cast<int>(sizeof(payload) - 1));
     std::memcpy(payload, event->data, copy_len);
     payload[copy_len] = '\0';
 
-    char* end = nullptr;
-    long parsed = std::strtol(payload, &end, 10);
-    if (end == payload) {
-        ESP_LOGW(TAG, "Ignoring non-integer payload: %s", payload);
+    int32_t parsed = 0;
+    if (!parseCounterPayload(payload, parsed)) {
+        ESP_LOGW(TAG, "Ignoring unsupported payload: %s", payload);
         return;
     }
-    if (parsed < 0) {
-        parsed = 0;
-    }
 
-    setLatestValue(static_cast<int32_t>(parsed));
-    ESP_LOGI(TAG, "Received %s = %ld", COUNTER_STATE_TOPIC, parsed);
+    setLatestValue(parsed);
+    ESP_LOGI(TAG, "Received %s = %ld", COUNTER_STATE_TOPIC, static_cast<long>(parsed));
 }
 
 void mqttEventHandler(void* handler_args, esp_event_base_t base, int32_t event_id, void* event_data)
