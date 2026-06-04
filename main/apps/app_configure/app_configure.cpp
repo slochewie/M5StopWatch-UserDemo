@@ -7,6 +7,7 @@
 
 #include <assets/assets.h>
 #include <hal/hal.h>
+#include <hal/utils/configure_ap/configure_ap.h>
 #include <mooncake_log.h>
 #include <smooth_lvgl.hpp>
 
@@ -32,7 +33,7 @@ void AppConfigure::onOpen()
 
     LvglLockGuard lock;
     createUi();
-    refreshStatus("Config portal scaffold\nPhase 2 will start AP mode");
+    refreshStatus("Press START PORTAL\nto open configuration AP");
 }
 
 void AppConfigure::onRunning()
@@ -82,7 +83,7 @@ void AppConfigure::createUi()
     lv_obj_align(_label_title, LV_ALIGN_CENTER, 0, -135);
 
     _label_status = lv_label_create(_panel);
-    lv_obj_set_width(_label_status, 330);
+    lv_obj_set_width(_label_status, 360);
     lv_label_set_long_mode(_label_status, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_align(_label_status, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_color(_label_status, lv_color_hex(0xBFBFBF), 0);
@@ -122,8 +123,19 @@ void AppConfigure::refreshStatus(const char* message)
 
 void AppConfigure::startConfigurePortal()
 {
-    LvglLockGuard lock;
-    refreshStatus("Portal not implemented yet.\nNext phase adds AP + web form.");
+    {
+        LvglLockGuard lock;
+        refreshStatus("Starting configure portal...");
+    }
+
+    GetHAL().lvglUnlock();
+    configure_ap::run([&](std::string_view msg) {
+        LvglLockGuard lock;
+        refreshStatus(std::string(msg).c_str());
+    });
+    GetHAL().lvglLock();
+
+    refreshStatus("Portal closed.\nReboot to use saved config.");
 }
 
 void AppConfigure::handleStartClicked(lv_event_t* event)
