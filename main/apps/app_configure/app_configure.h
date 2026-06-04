@@ -34,7 +34,6 @@ private:
     void startConfigurePortal();
     void onPortalClosed();
 
-    static void handleResetClicked(lv_event_t* event);
     static void handleStartClicked(lv_event_t* event);
     static void portalTask(void* arg);
 };
