@@ -21,7 +21,13 @@ idf_component_register(
     INCLUDE_DIRS
         ${MY_INCS}
     REQUIRES
+        lvgl
         mqtt
+        esp_wifi
+        esp_netif
+        esp_http_server
+        nvs_flash
+        esp_timer
     EMBED_FILES
         "assets/sfx/boot_sfx.bin"
     EMBED_TXTFILES
