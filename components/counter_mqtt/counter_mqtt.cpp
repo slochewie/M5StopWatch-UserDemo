@@ -1,27 +1,28 @@
 #include "counter_mqtt.h"
 
-#include "../../main/secrets.h"
+#include <device_config.h>
+
+#include <algorithm>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <string>
 
 #include <esp_err.h>
 #include <esp_event.h>
 #include <esp_log.h>
 #include <esp_netif.h>
 #include <esp_wifi.h>
-#include <mqtt_client.h>
-#include <nvs_flash.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/event_groups.h>
 #include <freertos/portmacro.h>
-#include <algorithm>
-#include <cstdlib>
-#include <cstring>
-#include <cstdio>
+#include <mqtt_client.h>
+#include <nvs_flash.h>
 
 namespace counter_mqtt {
 namespace {
 
 static constexpr const char* TAG = "CounterMQTT";
-static constexpr const char* COUNTER_STATE_TOPIC = "counters/capacity/state";
 static constexpr int WIFI_CONNECTED_BIT = BIT0;
 static constexpr int WIFI_FAIL_BIT = BIT1;
 static constexpr int WIFI_MAXIMUM_RETRY = 8;
@@ -37,6 +38,33 @@ int s_wifi_retry_count = 0;
 int32_t s_latest_value = 0;
 portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 
+device_config::Config s_config;
+std::string s_counter_topic;
+
+void loadRuntimeConfig()
+{
+    s_config = device_config::load();
+
+    auto defaults = device_config::defaults();
+    if (s_config.device_name.empty()) {
+        s_config.device_name = defaults.device_name;
+    }
+    if (s_config.mqtt_uri.empty()) {
+        s_config.mqtt_uri = defaults.mqtt_uri;
+    }
+    if (s_config.counter_topic.empty()) {
+        s_config.counter_topic = defaults.counter_topic;
+    }
+
+    s_counter_topic = s_config.counter_topic;
+
+    ESP_LOGI(TAG, "Loaded config: device=%s, broker=%s, topic=%s, ssid=%s",
+             s_config.device_name.c_str(),
+             s_config.mqtt_uri.c_str(),
+             s_counter_topic.c_str(),
+             s_config.wifi_ssid.empty() ? "<empty>" : s_config.wifi_ssid.c_str());
+}
+
 void wifiEventHandler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data)
 {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
@@ -45,6 +73,7 @@ void wifiEventHandler(void* arg, esp_event_base_t event_base, int32_t event_id, 
     }
 
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        s_wifi_started = false;
         if (s_wifi_retry_count < WIFI_MAXIMUM_RETRY) {
             ++s_wifi_retry_count;
             ESP_LOGW(TAG, "Wi-Fi disconnected, retry %d/%d", s_wifi_retry_count, WIFI_MAXIMUM_RETRY);
@@ -105,6 +134,11 @@ bool ensureWifiConnected()
         return true;
     }
 
+    if (s_config.wifi_ssid.empty()) {
+        ESP_LOGE(TAG, "Wi-Fi SSID is empty. Open Configure and save Wi-Fi settings.");
+        return false;
+    }
+
     if (!ensureNetworkStackReady()) {
         return false;
     }
@@ -118,6 +152,7 @@ bool ensureWifiConnected()
     esp_netif_create_default_wifi_sta();
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    cfg.nvs_enable = false;
     esp_err_t err = esp_wifi_init(&cfg);
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
         ESP_LOGE(TAG, "esp_wifi_init failed: %s", esp_err_to_name(err));
@@ -130,8 +165,12 @@ bool ensureWifiConnected()
     esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifiEventHandler, nullptr, &got_ip);
 
     wifi_config_t wifi_config = {};
-    std::strncpy(reinterpret_cast<char*>(wifi_config.sta.ssid), WIFI_SSID, sizeof(wifi_config.sta.ssid) - 1);
-    std::strncpy(reinterpret_cast<char*>(wifi_config.sta.password), WIFI_PASSWORD, sizeof(wifi_config.sta.password) - 1);
+    std::strncpy(reinterpret_cast<char*>(wifi_config.sta.ssid),
+                 s_config.wifi_ssid.c_str(),
+                 sizeof(wifi_config.sta.ssid) - 1);
+    std::strncpy(reinterpret_cast<char*>(wifi_config.sta.password),
+                 s_config.wifi_password.c_str(),
+                 sizeof(wifi_config.sta.password) - 1);
     wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
     wifi_config.sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;
 
@@ -152,7 +191,7 @@ bool ensureWifiConnected()
         ESP_LOGW(TAG, "esp_wifi_set_ps failed: %s", esp_err_to_name(err));
     }
 
-    ESP_LOGI(TAG, "Starting Wi-Fi STA");
+    ESP_LOGI(TAG, "Starting Wi-Fi STA: %s", s_config.wifi_ssid.c_str());
     err = esp_wifi_start();
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
         ESP_LOGE(TAG, "esp_wifi_start failed: %s", esp_err_to_name(err));
@@ -215,14 +254,23 @@ bool parseCounterPayload(const char* payload, int32_t& value)
     return true;
 }
 
+bool eventTopicMatches(esp_mqtt_event_handle_t event)
+{
+    if (event == nullptr || event->topic == nullptr || s_counter_topic.empty()) {
+        return false;
+    }
+
+    return event->topic_len == static_cast<int>(s_counter_topic.size()) &&
+           std::strncmp(event->topic, s_counter_topic.c_str(), event->topic_len) == 0;
+}
+
 void handleData(esp_mqtt_event_handle_t event)
 {
     if (event == nullptr || event->topic == nullptr || event->data == nullptr) {
         return;
     }
 
-    if (event->topic_len != static_cast<int>(std::strlen(COUNTER_STATE_TOPIC)) ||
-        std::strncmp(event->topic, COUNTER_STATE_TOPIC, event->topic_len) != 0) {
+    if (!eventTopicMatches(event)) {
         return;
     }
 
@@ -238,7 +286,7 @@ void handleData(esp_mqtt_event_handle_t event)
     }
 
     setLatestValue(parsed);
-    ESP_LOGI(TAG, "Received %s = %ld", COUNTER_STATE_TOPIC, static_cast<long>(parsed));
+    ESP_LOGI(TAG, "Received %s = %ld", s_counter_topic.c_str(), static_cast<long>(parsed));
 }
 
 void mqttEventHandler(void* handler_args, esp_event_base_t base, int32_t event_id, void* event_data)
@@ -249,7 +297,10 @@ void mqttEventHandler(void* handler_args, esp_event_base_t base, int32_t event_i
         case MQTT_EVENT_CONNECTED:
             s_connected = true;
             ESP_LOGI(TAG, "Connected");
-            esp_mqtt_client_subscribe(s_client, COUNTER_STATE_TOPIC, 1);
+            if (!s_counter_topic.empty()) {
+                esp_mqtt_client_subscribe(s_client, s_counter_topic.c_str(), 1);
+                ESP_LOGI(TAG, "Subscribed: %s", s_counter_topic.c_str());
+            }
             break;
 
         case MQTT_EVENT_DISCONNECTED:
@@ -279,14 +330,23 @@ void begin()
         return;
     }
 
+    loadRuntimeConfig();
+
     if (!ensureWifiConnected()) {
         return;
     }
 
     esp_mqtt_client_config_t mqtt_cfg = {};
-    mqtt_cfg.broker.address.uri = MQTT_BROKER_URI;
-    mqtt_cfg.credentials.username = MQTT_USERNAME;
-    mqtt_cfg.credentials.authentication.password = MQTT_PASSWORD;
+    mqtt_cfg.broker.address.uri = s_config.mqtt_uri.c_str();
+    if (!s_config.device_name.empty()) {
+        mqtt_cfg.credentials.client_id = s_config.device_name.c_str();
+    }
+    if (!s_config.mqtt_username.empty()) {
+        mqtt_cfg.credentials.username = s_config.mqtt_username.c_str();
+    }
+    if (!s_config.mqtt_password.empty()) {
+        mqtt_cfg.credentials.authentication.password = s_config.mqtt_password.c_str();
+    }
 
     s_client = esp_mqtt_client_init(&mqtt_cfg);
     if (s_client == nullptr) {
@@ -323,20 +383,29 @@ bool publishCounterValue(int32_t value)
         return false;
     }
 
+    if (s_counter_topic.empty()) {
+        ESP_LOGW(TAG, "Publish skipped, counter topic is empty");
+        return false;
+    }
+
     if (value < 0) {
         value = 0;
     }
 
-    char payload[96];
-    std::snprintf(payload, sizeof(payload), "{\"value\":%ld,\"updated_by\":\"m5stopwatch\"}", static_cast<long>(value));
+    char payload[128];
+    std::snprintf(payload,
+                  sizeof(payload),
+                  "{\"value\":%ld,\"updated_by\":\"%s\"}",
+                  static_cast<long>(value),
+                  s_config.device_name.empty() ? "m5stopwatch" : s_config.device_name.c_str());
 
-    int msg_id = esp_mqtt_client_publish(s_client, COUNTER_STATE_TOPIC, payload, 0, 1, 1);
+    int msg_id = esp_mqtt_client_publish(s_client, s_counter_topic.c_str(), payload, 0, 1, 1);
     if (msg_id < 0) {
         ESP_LOGW(TAG, "Publish failed: %ld", static_cast<long>(value));
         return false;
     }
 
-    ESP_LOGI(TAG, "Published %s = %ld", COUNTER_STATE_TOPIC, static_cast<long>(value));
+    ESP_LOGI(TAG, "Published %s = %ld", s_counter_topic.c_str(), static_cast<long>(value));
     return true;
 }
 
