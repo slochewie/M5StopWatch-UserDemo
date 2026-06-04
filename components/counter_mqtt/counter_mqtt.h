@@ -10,5 +10,9 @@ bool isConnected();
 bool publishCounterValue(int32_t value);
 bool takeLatestValue(int32_t& value);
 const char* statusText();
+const char* brokerUri();
+const char* counterTopic();
+const char* deviceName();
+const char* wifiSsid();
 
 }  // namespace counter_mqtt
