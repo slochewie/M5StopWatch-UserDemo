@@ -435,4 +435,24 @@ const char* statusText()
     return s_connected ? "MQTT OK" : "MQTT ...";
 }
 
+const char* brokerUri()
+{
+    return s_config.mqtt_uri.empty() ? "" : s_config.mqtt_uri.c_str();
+}
+
+const char* counterTopic()
+{
+    return s_counter_topic.empty() ? "" : s_counter_topic.c_str();
+}
+
+const char* deviceName()
+{
+    return s_config.device_name.empty() ? "" : s_config.device_name.c_str();
+}
+
+const char* wifiSsid()
+{
+    return s_config.wifi_ssid.empty() ? "" : s_config.wifi_ssid.c_str();
+}
+
 }  // namespace counter_mqtt
