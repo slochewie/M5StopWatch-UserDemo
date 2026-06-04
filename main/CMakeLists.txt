@@ -20,6 +20,8 @@ idf_component_register(
         ${MY_SRCS}
     INCLUDE_DIRS
         ${MY_INCS}
+    REQUIRES
+        mqtt
     EMBED_FILES
         "assets/sfx/boot_sfx.bin"
     EMBED_TXTFILES
