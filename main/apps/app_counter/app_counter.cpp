@@ -84,6 +84,7 @@ void AppCounter::onClose()
 void AppCounter::increment()
 {
     ++_count;
+    (void)counter_mqtt::publishCounterValue(_count);
     LvglLockGuard lock;
     refreshValue();
 }
@@ -93,6 +94,7 @@ void AppCounter::decrement()
     if (_count > 0) {
         --_count;
     }
+    (void)counter_mqtt::publishCounterValue(_count);
     LvglLockGuard lock;
     refreshValue();
 }
@@ -100,6 +102,7 @@ void AppCounter::decrement()
 void AppCounter::reset()
 {
     _count = 0;
+    (void)counter_mqtt::publishCounterValue(_count);
     refreshValue();
 }
 
