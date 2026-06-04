@@ -25,11 +25,16 @@ private:
     lv_obj_t* _label_status = nullptr;
     lv_obj_t* _button_start = nullptr;
     bool _start_requested = false;
+    bool _portal_active = false;
+    bool _is_open = false;
 
     void createUi();
     void destroyUi();
     void refreshStatus(const char* message);
     void startConfigurePortal();
+    void onPortalClosed();
 
+    static void handleResetClicked(lv_event_t* event);
     static void handleStartClicked(lv_event_t* event);
+    static void portalTask(void* arg);
 };
