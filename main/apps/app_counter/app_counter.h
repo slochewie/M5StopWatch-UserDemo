@@ -26,6 +26,7 @@ private:
     lv_obj_t* _button_reset = nullptr;
     int32_t _count = 0;
     uint32_t _last_status_update = 0;
+    bool _reset_requested = false;
 
     void increment();
     void decrement();
