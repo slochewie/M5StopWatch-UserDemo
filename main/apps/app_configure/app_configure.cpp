@@ -11,12 +11,16 @@
 #include <mooncake_log.h>
 #include <smooth_lvgl.hpp>
 
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <string>
+
 using namespace mooncake;
 
 AppConfigure::AppConfigure()
 {
     setAppInfo().name = "Configure";
-    // Reuse the setup icon for Phase 1. A dedicated configure icon can be added later.
+    // Reuse the setup icon for now. A dedicated configure icon can be added later.
     setAppInfo().icon = (void*)&icon_setup;
 }
 
@@ -28,12 +32,19 @@ void AppConfigure::onCreate()
 void AppConfigure::onOpen()
 {
     mclog::tagInfo(getAppInfo().name, "on open");
+
     _key_manager = std::make_unique<input::KeyManager>();
     _start_requested = false;
+    _is_open = true;
 
     LvglLockGuard lock;
     createUi();
-    refreshStatus("Press START PORTAL\nto open configuration AP");
+
+    if (_portal_active) {
+        refreshStatus("Configure portal is running.\nOpen http://192.168.4.1\nPress Home to close.");
+    } else {
+        refreshStatus("Press START PORTAL\nto open configuration AP");
+    }
 }
 
 void AppConfigure::onRunning()
@@ -41,6 +52,9 @@ void AppConfigure::onRunning()
     if (_key_manager) {
         auto event = _key_manager->update();
         if (event == input::KeyEvent::GoHome) {
+            if (_portal_active) {
+                configure_ap::requestStop();
+            }
             close();
             return;
         }
@@ -55,6 +69,8 @@ void AppConfigure::onRunning()
 void AppConfigure::onClose()
 {
     mclog::tagInfo(getAppInfo().name, "on close");
+
+    _is_open = false;
     _key_manager.reset();
     _start_requested = false;
 
@@ -123,19 +139,67 @@ void AppConfigure::refreshStatus(const char* message)
 
 void AppConfigure::startConfigurePortal()
 {
+    if (_portal_active) {
+        LvglLockGuard lock;
+        refreshStatus("Configure portal is already running.\nOpen http://192.168.4.1\nor press Home to close.");
+        return;
+    }
+
+    _portal_active = true;
+
     {
         LvglLockGuard lock;
         refreshStatus("Starting configure portal...");
     }
 
-    GetHAL().lvglUnlock();
-    configure_ap::run([&](std::string_view msg) {
-        LvglLockGuard lock;
-        refreshStatus(std::string(msg).c_str());
-    });
-    GetHAL().lvglLock();
+    BaseType_t created = xTaskCreatePinnedToCore(
+        AppConfigure::portalTask,
+        "configure_portal",
+        8192,
+        this,
+        4,
+        nullptr,
+        0);
 
+    if (created != pdPASS) {
+        _portal_active = false;
+        LvglLockGuard lock;
+        refreshStatus("Failed to start portal task.");
+    }
+}
+
+void AppConfigure::onPortalClosed()
+{
+    _portal_active = false;
+
+    if (!_is_open) {
+        return;
+    }
+
+    LvglLockGuard lock;
     refreshStatus("Portal closed.\nReboot to use saved config.");
+}
+
+void AppConfigure::portalTask(void* arg)
+{
+    auto* app = static_cast<AppConfigure*>(arg);
+    if (app == nullptr) {
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    configure_ap::run([app](std::string_view msg) {
+        if (!app->_is_open) {
+            return;
+        }
+
+        std::string copy(msg);
+        LvglLockGuard lock;
+        app->refreshStatus(copy.c_str());
+    });
+
+    app->onPortalClosed();
+    vTaskDelete(nullptr);
 }
 
 void AppConfigure::handleStartClicked(lv_event_t* event)
