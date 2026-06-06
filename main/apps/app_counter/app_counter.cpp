@@ -48,14 +48,7 @@ void AppCounter::onRunning()
         return;
     }
 
-    int32_t mqtt_value = 0;
-    if (counter_mqtt::takeLatestValue(mqtt_value)) {
-        _count = mqtt_value;
-        LvglLockGuard lock;
-        refreshValue();
-        refreshStatus();
-        refreshDiagnostics();
-    }
+    syncLatestMqttValue(true);
 
     if (_reset_requested) {
         _reset_requested = false;
@@ -94,8 +87,32 @@ void AppCounter::onClose()
     destroyUi();
 }
 
+bool AppCounter::syncLatestMqttValue(bool refresh_ui)
+{
+    int32_t mqtt_value = 0;
+    if (!counter_mqtt::takeLatestValue(mqtt_value)) {
+        return false;
+    }
+
+    _count = mqtt_value;
+
+    if (refresh_ui) {
+        LvglLockGuard lock;
+        refreshValue();
+        refreshStatus();
+        refreshDiagnostics();
+    }
+
+    return true;
+}
+
 void AppCounter::increment()
 {
+    // Re-drain MQTT immediately before publishing. This prevents a local
+    // button press from using stale state even if another MQTT update arrived
+    // after the top-of-loop sync but before this handler runs.
+    syncLatestMqttValue(false);
+
     ++_count;
     (void)counter_mqtt::publishCounterValue(_count);
     LvglLockGuard lock;
@@ -104,6 +121,11 @@ void AppCounter::increment()
 
 void AppCounter::decrement()
 {
+    // Re-drain MQTT immediately before publishing. This prevents a local
+    // button press from using stale state even if another MQTT update arrived
+    // after the top-of-loop sync but before this handler runs.
+    syncLatestMqttValue(false);
+
     if (_count > 0) {
         --_count;
     }
