@@ -35,6 +35,7 @@ private:
     uint32_t _last_status_update = 0;
     bool _reset_requested = false;
 
+    bool syncLatestMqttValue(bool refresh_ui);
     void increment();
     void decrement();
     void reset();
