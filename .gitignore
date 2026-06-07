@@ -1,17 +1,17 @@
 # Prerequisites
 *.d
 
-# Compiled Object files
+# Compiled object files
 *.slo
 *.lo
 *.o
 *.obj
 
-# Precompiled Headers
+# Precompiled headers
 *.gch
 *.pch
 
-# Compiled Dynamic libraries
+# Compiled dynamic libraries
 *.so
 *.dylib
 *.dll
@@ -20,7 +20,7 @@
 *.mod
 *.smod
 
-# Compiled Static libraries
+# Compiled static libraries
 *.lai
 *.la
 *.a
@@ -30,27 +30,55 @@
 *.exe
 *.out
 *.app
+*.elf
+*.bin
+*.hex
+*.map
 
-# MacOS desktop metadata files
+# macOS desktop metadata files
 .DS_Store
+.AppleDouble
+.LSOverride
 
-# Build files
+# ESP-IDF / CMake build output
 build/
+build-*/
 cmake-build-*/
-/components/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+project_elf_src_*.c
+flasher_args.json
+flash_project_args
+bootloader-flash_args
+partition-table-flash_args
+
+# ESP-IDF generated config
+sdkconfig
+sdkconfig.old
+sdkconfig.backup
+sdkconfig.*.old
+
+# ESP-IDF managed dependencies
 managed_components/
 
 # PlatformIO
 .pio/
 
-# VSCode
+# VS Code / editor state
 .vscode/
 .cache/
+*.code-workspace
 
-# Python virtual environment
+# Python virtual environments / cache
 .venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
 
-# Debug / Release files
+# Debug / release directories
 Debug/
 debug/
 Release/
@@ -59,10 +87,8 @@ out/
 bin/
 obj/
 
-*.code-workspace
-
-sdkconfig
-sdkconfig.old
-
 # Local secrets
 main/secrets.h
+main/secrets.hpp
+main/wifi_config.h
+main/mqtt_config.h
