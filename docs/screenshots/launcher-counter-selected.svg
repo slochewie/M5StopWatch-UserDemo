@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="466" height="466" viewBox="0 0 466 466" role="img" aria-label="M5Stack StopWatch launcher with Counter selected">
+  <defs><clipPath id="round"><circle cx="233" cy="233" r="233"/></clipPath><radialGradient id="lcd" cx="50%" cy="45%" r="65%"><stop offset="0%" stop-color="#07101a"/><stop offset="100%" stop-color="#000000"/></radialGradient><filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="5" stdDeviation="8" flood-color="#000" flood-opacity="0.7"/></filter></defs>
+  <circle cx="233" cy="233" r="233" fill="#050505"/>
+  <g clip-path="url(#round)">
+    <rect width="466" height="466" fill="url(#lcd)"/>
+    <circle cx="233" cy="233" r="226" fill="none" stroke="#17202a" stroke-width="12"/>
+    <path d="M142 42 A150 150 0 0 1 324 42" fill="none" stroke="#edf4ff" stroke-width="3" opacity="0.9"/>
+    <text x="233" y="42" text-anchor="middle" fill="#edf4ff" font-size="20" font-family="Montserrat, Arial, sans-serif">12:45</text>
+    <g opacity="0.28"><circle cx="-233" cy="218" r="72" fill="#202833"/><text x="-233" y="225" text-anchor="middle" fill="#ffffff" font-size="18">Timer</text></g>
+    <g filter="url(#shadow)">
+      <rect x="133" y="118" width="200" height="200" rx="52" fill="#111820" stroke="#2d7dff" stroke-width="3"/>
+      <circle cx="233" cy="218" r="60" fill="none" stroke="#ffffff" stroke-width="9"/>
+      <text x="233" y="236" text-anchor="middle" fill="#ffffff" font-size="42" font-family="Menlo, Consolas, monospace" font-weight="700">30</text>
+      <path d="M233 142 L233 124" stroke="#ffffff" stroke-width="8" stroke-linecap="round"/>
+    </g>
+    <text x="233" y="388" text-anchor="middle" fill="#ffffff" font-size="26" font-weight="700" font-family="Montserrat, Arial, sans-serif">Counter</text>
+    <text x="33" y="242" text-anchor="middle" fill="#ffffff" font-size="42" opacity="0.65">‹</text>
+    <text x="433" y="242" text-anchor="middle" fill="#ffffff" font-size="42" opacity="0.65">›</text>
+    <circle cx="201" cy="433" r="7" fill="#ffffff" opacity="0.45"/><circle cx="217" cy="433" r="7" fill="#ffffff" opacity="0.45"/><circle cx="233" cy="433" r="10" fill="#ffffff"/><circle cx="249" cy="433" r="7" fill="#ffffff" opacity="0.45"/><circle cx="265" cy="433" r="7" fill="#ffffff" opacity="0.45"/>
+  </g>
+</svg>
