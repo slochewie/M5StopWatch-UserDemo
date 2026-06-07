@@ -24,7 +24,23 @@ The project is based on the original M5Stack StopWatch User Demo firmware and ha
 
 ## System Architecture
 
-text                     ┌───────────────┐                     │   Node-RED    │                     │ Authoritative │                     │ Counter State │                     └───────┬───────┘                             │                       MQTT Broker                             │          ┌──────────────────┼──────────────────┐          │                  │                  │          ▼                  ▼                  ▼   StopWatch #1      StopWatch #2       Web Dashboard          │          ▼    Additional MQTT Clients 
+```text
+                    ┌───────────────┐
+                    │   Node-RED    │
+                    │ Authoritative │
+                    │ Counter State │
+                    └───────┬───────┘
+                            │
+                      MQTT Broker
+                            │
+         ┌──────────────────┼──────────────────┐
+         │                  │                  │
+         ▼                  ▼                  ▼
+  StopWatch #1      StopWatch #2       Web Dashboard
+         │
+         ▼
+   Additional MQTT Clients
+```
 
 Node-RED maintains the authoritative counter value.
 
@@ -43,7 +59,7 @@ All clients subscribe to the counter state topic and update their displays whene
 ## Button Mapping
 
 | Button | Function |
-|----------|----------|
+| --- | --- |
 | KEYB (Blue) | Increment |
 | KEYA (Yellow) | Decrement |
 | KEYA + KEYB | Reset |
@@ -54,41 +70,57 @@ All clients subscribe to the counter state topic and update their displays whene
 
 Topic:
 
-text counters/capacity/state 
+```text
+counters/capacity/state
+```
 
-Payload Example:
+Payload example:
 
-text 30 
+```text
+30
+```
 
 ### Increment Command
 
 Topic:
 
-text counters/capacity/increment 
+```text
+counters/capacity/increment
+```
 
 Payload:
 
-text 1 
+```text
+1
+```
 
 ### Decrement Command
 
 Topic:
 
-text counters/capacity/decrement 
+```text
+counters/capacity/decrement
+```
 
 Payload:
 
-text 1 
+```text
+1
+```
 
 ### Reset Command
 
 Topic:
 
-text counters/capacity/reset 
+```text
+counters/capacity/reset
+```
 
 Payload:
 
-text 1 
+```text
+1
+```
 
 ## Software Components
 
@@ -108,7 +140,7 @@ Node-RED maintains the authoritative counter value and republishes state changes
 
 Examples:
 
-- Web Dashboard (counter.html)
+- Web Dashboard (`counter.html`)
 - M5StickS3 MQTT Counter
 - GeekMagic SmallTV Pro MQTT Display
 - Future mobile applications
@@ -126,35 +158,64 @@ This project is developed using Espressif ESP-IDF.
 
 ## Clone Repository
 
-bash git clone https://github.com/slochewie/M5StopWatch-MQTT-Counter.git cd M5StopWatch-MQTT-Counter 
+```bash
+git clone https://github.com/slochewie/M5StopWatch-MQTT-Counter.git
+cd M5StopWatch-MQTT-Counter
+```
 
 ## Configure Target
 
-bash idf.py set-target esp32s3 
+```bash
+idf.py set-target esp32s3
+```
 
 Optional:
 
-bash idf.py menuconfig 
+```bash
+idf.py menuconfig
+```
 
 ## Build
 
-bash idf.py build 
+```bash
+idf.py build
+```
 
 ## Flash
 
-bash idf.py flash 
+```bash
+idf.py flash
+```
 
 ## Monitor
 
-bash idf.py monitor 
+```bash
+idf.py monitor
+```
 
 Flash and monitor:
 
-bash idf.py flash monitor 
+```bash
+idf.py flash monitor
+```
 
 ## Recommended Repository Structure
 
-text M5StopWatch-MQTT-Counter/ ├── main/ ├── components/ ├── docs/ │   ├── architecture.md │   └── screenshots/ ├── node-red/ │   └── flows.json ├── web/ │   └── counter.html ├── CMakeLists.txt ├── sdkconfig.defaults └── README.md 
+```text
+M5StopWatch-MQTT-Counter/
+├── main/
+├── components/
+├── docs/
+│   ├── architecture.md
+│   └── screenshots/
+├── node-red/
+│   └── flows.json
+├── web/
+│   └── counter.html
+├── CMakeLists.txt
+├── sdkconfig.defaults
+└── README.md
+```
 
 ## Planned Power Management
 
@@ -201,7 +262,3 @@ Current focus:
 - Multi-device support
 - Power optimization
 - User interface refinement
-
-## License
-
-See LICENSE file for details.
