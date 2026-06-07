@@ -1,0 +1,272 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Capacity Counter</title>
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <style>
+    :root {
+      --bg: #050507;
+      --panel: #111116;
+      --panel-border: #2a2a33;
+      --text: #f5f5f7;
+      --muted: #8e8e93;
+      --blue: #0a84ff;
+      --blue-pressed: #006ee6;
+      --green: #30d158;
+      --red: #ff453a;
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    body {
+      min-height: 100vh;
+      min-height: 100dvh;
+      display: flex;
+      justify-content: center;
+      align-items: stretch;
+    }
+
+    .app {
+      width: min(100vw, 480px);
+      min-height: 100vh;
+      min-height: 100dvh;
+      padding: calc(env(safe-area-inset-top) + 58px) 28px calc(env(safe-area-inset-bottom) + 34px);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(2.2rem, 8vw, 3.15rem);
+      line-height: 1.05;
+      font-weight: 800;
+      letter-spacing: -0.055em;
+    }
+
+    #count {
+      margin-top: clamp(76px, 14vh, 120px);
+      font-size: clamp(7.5rem, 32vw, 11.5rem);
+      line-height: 0.82;
+      font-weight: 900;
+      letter-spacing: -0.08em;
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+      transition: transform 160ms ease, opacity 160ms ease;
+    }
+
+    #count.pulse {
+      transform: scale(1.075);
+      opacity: 0.88;
+    }
+
+    .reset-row {
+      margin-top: clamp(64px, 9vh, 86px);
+      width: 100%;
+      display: flex;
+      justify-content: center;
+    }
+
+    .reset-button {
+      width: min(78%, 310px);
+      height: 68px;
+      border: 0;
+      border-radius: 18px;
+      background: linear-gradient(180deg, #178bff, var(--blue));
+      box-shadow: 0 14px 30px rgba(10, 132, 255, 0.28);
+      color: white;
+      font-size: 1.45rem;
+      font-weight: 650;
+      cursor: pointer;
+    }
+
+    .stepper {
+      margin-top: clamp(56px, 9vh, 86px);
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+
+    .step-button {
+      aspect-ratio: 1.08 / 1;
+      border: 1.5px solid var(--panel-border);
+      border-radius: 25px;
+      background: linear-gradient(180deg, #15151b, #0f0f14);
+      box-shadow: 0 13px 24px rgba(0, 0, 0, 0.38), inset 0 1px 0 rgba(255,255,255,0.05);
+      color: var(--blue);
+      font-size: clamp(4.2rem, 18vw, 6.6rem);
+      font-weight: 300;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    .reset-button:active,
+    .step-button:active {
+      transform: scale(0.97);
+      filter: brightness(0.92);
+    }
+
+    .connection {
+      margin-top: auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 11px;
+      font-size: 1.35rem;
+      font-weight: 650;
+      color: var(--muted);
+    }
+
+    .dot {
+      width: 17px;
+      height: 17px;
+      border-radius: 999px;
+      background: var(--red);
+      box-shadow: 0 0 18px rgba(255, 69, 58, 0.45);
+    }
+
+    #status.connected {
+      color: var(--green);
+    }
+
+    #status.connected .dot {
+      background: var(--green);
+      box-shadow: 0 0 18px rgba(48, 209, 88, 0.45);
+    }
+
+    #status.offline {
+      color: var(--red);
+    }
+
+    .details {
+      margin-top: 12px;
+      display: grid;
+      gap: 4px;
+      color: var(--muted);
+      font-size: 0.78rem;
+      opacity: 0.72;
+    }
+
+    @media (max-height: 720px) {
+      .app { padding-top: calc(env(safe-area-inset-top) + 34px); }
+      #count { margin-top: 46px; }
+      .reset-row { margin-top: 44px; }
+      .stepper { margin-top: 36px; }
+      .reset-button { height: 58px; }
+      .connection { font-size: 1.05rem; }
+    }
+  </style>
+</head>
+
+<body>
+  <main class="app">
+    <h1>Capacity Counter</h1>
+    <div id="count">--</div>
+
+    <div class="reset-row">
+      <button class="reset-button" onclick="sendCommand('reset')">Reset</button>
+    </div>
+
+    <div class="stepper">
+      <button class="step-button" aria-label="Decrement" onclick="sendCommand('decrement')">−</button>
+      <button class="step-button" aria-label="Increment" onclick="sendCommand('increment')">+</button>
+    </div>
+
+    <div id="status" class="connection offline">
+      <span class="dot"></span>
+      <span class="status-text">Connecting...</span>
+    </div>
+
+    <div class="details">
+      <div id="updated">Last update: --</div>
+      <div id="source">Updated by: --</div>
+    </div>
+  </main>
+
+  <script>
+    const MQTT_HOST = "ws://<mqtt broker ip>:9001";
+    const MQTT_USER = "<mqtt broker user>";
+    const MQTT_PASS = "<mqtt broker password>";
+
+    const STATE_TOPIC = "counters/capacity/state";
+    const COMMAND_TOPIC = "counters/capacity/command";
+
+    const countEl = document.getElementById("count");
+    const statusEl = document.getElementById("status");
+    const statusTextEl = statusEl.querySelector(".status-text");
+    const updatedEl = document.getElementById("updated");
+    const sourceEl = document.getElementById("source");
+
+    const client = mqtt.connect(MQTT_HOST, {
+      username: MQTT_USER,
+      password: MQTT_PASS,
+      reconnectPeriod: 2000,
+      clientId: "counter_web_" + Math.random().toString(16).slice(2)
+    });
+
+    client.on("connect", () => {
+      statusTextEl.textContent = "Connected";
+      statusEl.className = "connection connected";
+      client.subscribe(STATE_TOPIC);
+      client.publish("counters/capacity/get", "web_init");
+    });
+
+    client.on("message", (topic, message) => {
+      try {
+        const data = JSON.parse(message.toString());
+
+        if (data.value !== undefined) {
+          countEl.textContent = data.value;
+
+          countEl.classList.remove("pulse");
+          void countEl.offsetWidth;
+          countEl.classList.add("pulse");
+
+          setTimeout(() => {
+            countEl.classList.remove("pulse");
+          }, 180);
+        }
+
+        updatedEl.textContent = "Last update: " + new Date().toLocaleTimeString();
+        sourceEl.textContent = "Updated by: " + (data.updated_by || "--");
+
+      } catch (e) {
+        console.error("Bad MQTT payload:", message.toString());
+      }
+    });
+
+    client.on("offline", () => {
+      statusTextEl.textContent = "Offline";
+      statusEl.className = "connection offline";
+    });
+
+    client.on("error", (err) => {
+      statusTextEl.textContent = "MQTT error";
+      statusEl.className = "connection offline";
+      console.error(err);
+    });
+
+    function sendCommand(action) {
+      client.publish(COMMAND_TOPIC, JSON.stringify({
+        action: action,
+        source: "web_page"
+      }));
+    }
+  </script>
+</body>
+</html>
