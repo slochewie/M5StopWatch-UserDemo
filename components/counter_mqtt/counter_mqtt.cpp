@@ -40,6 +40,24 @@ portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 
 device_config::Config s_config;
 std::string s_counter_topic;
+std::string s_battery_topic;
+
+std::string deriveBatteryTopic(const std::string& counter_topic)
+{
+    static constexpr const char* suffix = "/state";
+    static constexpr size_t suffix_len = 6;
+
+    if (counter_topic.size() >= suffix_len &&
+        counter_topic.compare(counter_topic.size() - suffix_len, suffix_len, suffix) == 0) {
+        return counter_topic.substr(0, counter_topic.size() - suffix_len) + "/battery";
+    }
+
+    if (!counter_topic.empty() && counter_topic.back() == '/') {
+        return counter_topic + "battery";
+    }
+
+    return counter_topic + "/battery";
+}
 
 void loadRuntimeConfig()
 {
@@ -57,11 +75,13 @@ void loadRuntimeConfig()
     }
 
     s_counter_topic = s_config.counter_topic;
+    s_battery_topic = deriveBatteryTopic(s_counter_topic);
 
-    ESP_LOGI(TAG, "Loaded config: device=%s, broker=%s, topic=%s, ssid=%s",
+    ESP_LOGI(TAG, "Loaded config: device=%s, broker=%s, topic=%s, battery=%s, ssid=%s",
              s_config.device_name.c_str(),
              s_config.mqtt_uri.c_str(),
              s_counter_topic.c_str(),
+             s_battery_topic.c_str(),
              s_config.wifi_ssid.empty() ? "<empty>" : s_config.wifi_ssid.c_str());
 }
 
@@ -409,6 +429,39 @@ bool publishCounterValue(int32_t value)
     return true;
 }
 
+bool publishBatteryPercentage(uint8_t percent)
+{
+    if (!s_started || !s_connected || s_client == nullptr) {
+        ESP_LOGW(TAG, "Battery publish skipped, MQTT not connected");
+        return false;
+    }
+
+    if (s_battery_topic.empty()) {
+        ESP_LOGW(TAG, "Battery publish skipped, topic is empty");
+        return false;
+    }
+
+    if (percent > 100) {
+        percent = 100;
+    }
+
+    char payload[128];
+    std::snprintf(payload,
+                  sizeof(payload),
+                  "{\"battery\":%u,\"device\":\"%s\"}",
+                  static_cast<unsigned>(percent),
+                  s_config.device_name.empty() ? "m5stopwatch" : s_config.device_name.c_str());
+
+    int msg_id = esp_mqtt_client_publish(s_client, s_battery_topic.c_str(), payload, 0, 1, 1);
+    if (msg_id < 0) {
+        ESP_LOGW(TAG, "Battery publish failed: %u", static_cast<unsigned>(percent));
+        return false;
+    }
+
+    ESP_LOGI(TAG, "Published %s = %u", s_battery_topic.c_str(), static_cast<unsigned>(percent));
+    return true;
+}
+
 bool takeLatestValue(int32_t& value)
 {
     bool has_value = false;
@@ -443,6 +496,11 @@ const char* brokerUri()
 const char* counterTopic()
 {
     return s_counter_topic.empty() ? "" : s_counter_topic.c_str();
+}
+
+const char* batteryTopic()
+{
+    return s_battery_topic.empty() ? "" : s_battery_topic.c_str();
 }
 
 const char* deviceName()
