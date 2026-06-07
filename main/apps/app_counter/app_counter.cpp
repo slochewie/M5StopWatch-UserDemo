@@ -14,6 +14,10 @@
 using namespace mooncake;
 using namespace smooth_ui_toolkit::lvgl_cpp;
 
+namespace {
+static constexpr uint32_t BATTERY_PUBLISH_INTERVAL_MS = 60000;
+}
+
 AppCounter::AppCounter()
 {
     setAppInfo().name = "Counter";
@@ -31,6 +35,8 @@ void AppCounter::onOpen()
     _key_manager = std::make_unique<input::KeyManager>();
     _reset_requested = false;
     _diagnostics_visible = false;
+    _last_battery_publish = 0;
+    _last_published_battery = 255;
 
     {
         LvglLockGuard lock;
@@ -40,6 +46,7 @@ void AppCounter::onOpen()
     }
 
     counter_mqtt::begin();
+    publishBatteryIfNeeded(true);
 }
 
 void AppCounter::onRunning()
@@ -69,6 +76,8 @@ void AppCounter::onRunning()
     }
 
     const uint32_t now = GetHAL().millis();
+    publishBatteryIfNeeded();
+
     if (now - _last_status_update > 1000) {
         LvglLockGuard lock;
         refreshStatus();
@@ -185,25 +194,29 @@ void AppCounter::refreshDiagnostics()
     const char* ssid = counter_mqtt::wifiSsid();
     const char* broker = counter_mqtt::brokerUri();
     const char* topic = counter_mqtt::counterTopic();
+    const char* battery_topic = counter_mqtt::batteryTopic();
 
     if (device == nullptr || device[0] == '\0') device = "not set";
     if (ssid == nullptr || ssid[0] == '\0') ssid = "not set";
     if (broker == nullptr || broker[0] == '\0') broker = "not set";
     if (topic == nullptr || topic[0] == '\0') topic = "not set";
+    if (battery_topic == nullptr || battery_topic[0] == '\0') battery_topic = "not set";
 
-    char buffer[512];
+    char buffer[640];
     std::snprintf(buffer,
                   sizeof(buffer),
                   "DIAGNOSTICS\n\n"
                   "Device:\n%s\n\n"
                   "Wi-Fi:\n%s\n\n"
                   "MQTT:\n%s\n%s\n\n"
-                  "Topic:\n%s",
+                  "Counter Topic:\n%s\n\n"
+                  "Battery Topic:\n%s",
                   device,
                   ssid,
                   counter_mqtt::statusText(),
                   broker,
-                  topic);
+                  topic,
+                  battery_topic);
     lv_label_set_text(_diagnostics_label, buffer);
 }
 
@@ -220,6 +233,28 @@ void AppCounter::showDiagnostics(bool show)
         lv_obj_move_foreground(_diagnostics_panel);
     } else {
         lv_obj_add_flag(_diagnostics_panel, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+void AppCounter::publishBatteryIfNeeded(bool force)
+{
+    const uint32_t now = GetHAL().millis();
+    uint8_t battery = GetHAL().getBatteryLevel();
+    if (battery > 100) {
+        battery = 100;
+    }
+
+    const bool changed = battery != _last_published_battery;
+    const bool due = _last_battery_publish == 0 ||
+                     now - _last_battery_publish >= BATTERY_PUBLISH_INTERVAL_MS;
+
+    if (!force && !changed && !due) {
+        return;
+    }
+
+    if (counter_mqtt::publishBatteryPercentage(battery)) {
+        _last_published_battery = battery;
+        _last_battery_publish = now;
     }
 }
 
