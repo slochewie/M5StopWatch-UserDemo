@@ -8,10 +8,16 @@
     <text x="233" y="42" text-anchor="middle" fill="#edf4ff" font-size="20" font-family="Montserrat, Arial, sans-serif">12:45</text>
     <g opacity="0.28"><circle cx="-233" cy="218" r="72" fill="#202833"/><text x="-233" y="225" text-anchor="middle" fill="#ffffff" font-size="18">Timer</text></g>
     <g filter="url(#shadow)">
-      <rect x="133" y="118" width="200" height="200" rx="52" fill="#111820" stroke="#2d7dff" stroke-width="3"/>
-      <circle cx="233" cy="218" r="60" fill="none" stroke="#ffffff" stroke-width="9"/>
-      <text x="233" y="236" text-anchor="middle" fill="#ffffff" font-size="42" font-family="Menlo, Consolas, monospace" font-weight="700">30</text>
-      <path d="M233 142 L233 124" stroke="#ffffff" stroke-width="8" stroke-linecap="round"/>
+      <rect x="133" y="118" width="200" height="200" rx="52" fill="#121212" stroke="#8c8c8c" stroke-width="3"/>
+      <rect x="168" y="154" width="130" height="128" rx="20" fill="#d5d5d5"/>
+      <rect x="180" y="166" width="106" height="104" rx="12" fill="#1f1f1f"/>
+      <rect x="192" y="180" width="82" height="30" rx="6" fill="#dcdcdc"/>
+      <text x="233" y="204" text-anchor="middle" font-family="Menlo, Consolas, monospace" font-size="26" font-weight="700" fill="#111111">30</text>
+      <circle cx="202" cy="238" r="13" fill="#f2c94c"/>
+      <circle cx="264" cy="238" r="13" fill="#2d7dff"/>
+      <rect x="194" y="257" width="78" height="7" rx="3" fill="#b7b7b7"/>
+      <text x="202" y="242" text-anchor="middle" font-family="Arial" font-size="14" font-weight="700" fill="#111">−</text>
+      <text x="264" y="243" text-anchor="middle" font-family="Arial" font-size="14" font-weight="700" fill="#fff">+</text>
     </g>
     <text x="233" y="388" text-anchor="middle" fill="#ffffff" font-size="26" font-weight="700" font-family="Montserrat, Arial, sans-serif">Counter</text>
     <text x="33" y="242" text-anchor="middle" fill="#ffffff" font-size="42" opacity="0.65">‹</text>
