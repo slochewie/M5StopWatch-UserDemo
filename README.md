@@ -235,7 +235,7 @@ M5Stack StopWatch User Demo firmware.
 
 ### Companion Projects
 
-- M5StickS3 MQTT Counter
+- [M5StickS3 MQTT Counter](https://github.com/slochewie/M5StickS3-MQTT-Counter)
 - Node-RED Capacity Counter
 - Counter Web Dashboard
 - GeekMagic SmallTV Pro MQTT Display
