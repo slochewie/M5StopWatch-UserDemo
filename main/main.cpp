@@ -11,6 +11,7 @@
 #include <hal/hal.h>
 #include <lv_demos.h>
 #include <apps/common/audio/audio.h>
+#include <counter_mqtt.h>
 #include <cstdlib>
 #include <ctime>
 
@@ -38,6 +39,10 @@ extern "C" void app_main(void)
     mclog::set_time_format(mclog::time_format_unix_milliseconds);
 
     GetHAL().init();
+
+    // Start MQTT immediately at boot so the retained time authority topic can
+    // correct the launcher/App Setup clock without opening the Counter app.
+    counter_mqtt::begin();
 
     ui_hal::on_delay([](uint32_t ms) { GetHAL().delay(ms); });
     ui_hal::on_get_tick([]() { return GetHAL().millis(); });
