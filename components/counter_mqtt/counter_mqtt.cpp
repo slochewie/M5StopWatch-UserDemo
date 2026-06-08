@@ -26,6 +26,7 @@ namespace {
 
 static constexpr const char* TAG = "CounterMQTT";
 static constexpr const char* TIME_TOPIC = "system/time/epoch";
+static constexpr const char* LOCAL_TIMEZONE = "PST8PDT,M3.2.0,M11.1.0";
 static constexpr time_t MIN_VALID_EPOCH = 1700000000;  // 2023-11-14 sanity floor.
 static constexpr int WIFI_CONNECTED_BIT = BIT0;
 static constexpr int WIFI_FAIL_BIT = BIT1;
@@ -46,6 +47,12 @@ device_config::Config s_config;
 std::string s_counter_topic;
 std::string s_battery_topic;
 
+void applyLocalTimezone()
+{
+    setenv("TZ", LOCAL_TIMEZONE, 1);
+    tzset();
+}
+
 std::string deriveBatteryTopic(const std::string& counter_topic)
 {
     static constexpr const char* suffix = "/state";
@@ -65,6 +72,7 @@ std::string deriveBatteryTopic(const std::string& counter_topic)
 
 void loadRuntimeConfig()
 {
+    applyLocalTimezone();
     s_config = device_config::load();
 
     auto defaults = device_config::defaults();
@@ -344,6 +352,8 @@ void handleTimeData(const char* payload)
         return;
     }
 
+    applyLocalTimezone();
+
     timeval tv = {
         .tv_sec = epoch,
         .tv_usec = 0,
@@ -354,7 +364,30 @@ void handleTimeData(const char* payload)
         return;
     }
 
-    ESP_LOGI(TAG, "System time synced from %s: %lld", TIME_TOPIC, static_cast<long long>(epoch));
+    applyLocalTimezone();
+
+    char local_buffer[32] = {};
+    std::tm local_tm = {};
+    if (localtime_r(&epoch, &local_tm) != nullptr) {
+        std::snprintf(local_buffer,
+                      sizeof(local_buffer),
+                      "%04d-%02d-%02d %02d:%02d:%02d",
+                      local_tm.tm_year + 1900,
+                      local_tm.tm_mon + 1,
+                      local_tm.tm_mday,
+                      local_tm.tm_hour,
+                      local_tm.tm_min,
+                      local_tm.tm_sec);
+    } else {
+        std::snprintf(local_buffer, sizeof(local_buffer), "localtime failed");
+    }
+
+    ESP_LOGI(TAG,
+             "System time synced from %s: epoch=%lld local=%s TZ=%s",
+             TIME_TOPIC,
+             static_cast<long long>(epoch),
+             local_buffer,
+             getenv("TZ") == nullptr ? "<unset>" : getenv("TZ"));
 }
 
 void handleData(esp_mqtt_event_handle_t event)
