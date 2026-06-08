@@ -24,4 +24,5 @@ idf_component_register(
         "assets/sfx/boot_sfx.bin"
     EMBED_TXTFILES
         "hal/utils/config_ap/assets/badge_config_ap.html"
+        "hal/utils/configure_ap/assets/configure_ap.html"
 )
