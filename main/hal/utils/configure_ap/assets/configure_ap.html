@@ -1,0 +1,86 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>M5 Configure</title>
+  <link rel="stylesheet" href="/configure_ap.css">
+</head>
+<body>
+  <main>
+    <div class="card">
+      <h1>M5StopWatch Configure</h1>
+      <p>Configure network, MQTT, device name, and counter topic.</p>
+      <div id="status" class="status">Loading...</div>
+    </div>
+
+    <form id="form" class="card">
+      <h2>Wi-Fi</h2>
+      <button type="button" class="secondary" id="scan">Scan</button>
+
+      <label>Nearby SSID</label>
+      <select id="ssid_select">
+        <option value="">Scan first</option>
+      </select>
+
+      <label>Wi-Fi Network (SSID)</label>
+      <input id="wifi_ssid">
+      <div class="hint">Select a scanned network or enter one manually.</div>
+
+      <label>Password</label>
+      <input id="wifi_password" type="password">
+
+      <h2>MQTT</h2>
+      <div class="toggleRow">
+        <div>
+          <b>Encryption</b>
+          <div class="hint">Off = mqtt://, On = mqtts://</div>
+        </div>
+        <label class="switch">
+          <input id="mqtt_encrypt" type="checkbox">
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <label>Broker IP or Domain</label>
+      <input id="mqtt_host" placeholder="smbhub.local or 192.168.75.61">
+
+      <label>Port</label>
+      <input id="mqtt_port" inputmode="numeric" pattern="[0-9]*" value="1883">
+
+      <div class="hint">Full URI preview</div>
+      <div id="mqtt_preview" class="preview">mqtt://:1883</div>
+
+      <label>MQTT Username</label>
+      <input id="mqtt_username">
+
+      <label>MQTT Password</label>
+      <input id="mqtt_password" type="password">
+      <div class="hint">Used to authenticate with your MQTT broker.</div>
+
+      <button type="button" class="secondary" id="mqtt_test">Test MQTT Connection</button>
+
+      <h2>Counter</h2>
+      <label>Device Name</label>
+      <input id="device_name">
+      <div class="hint">Used as the device identifier and MQTT client name.</div>
+
+      <label>Counter Topic</label>
+      <input id="counter_topic">
+      <div class="hint">Example: counters/capacity/state</div>
+
+      <button type="submit">Save</button>
+      <button type="button" class="secondary" id="reload">Reload</button>
+      <button type="button" class="secondary" id="close">Close Portal</button>
+    </form>
+
+    <div id="saved_card" class="card saved hidden">
+      <h2>Settings Saved</h2>
+      <p>Changes will take effect after reboot.</p>
+      <button type="button" class="danger" id="reboot">Reboot Device</button>
+    </div>
+  </main>
+
+  <script src="/configure_ap.js"></script>
+</body>
+</html>
