@@ -9,6 +9,7 @@
 #include <mooncake_log.h>
 #include <smooth_lvgl.hpp>
 #include <cstdio>
+#include <ctime>
 #include "../../../components/counter_mqtt/counter_mqtt.h"
 
 using namespace mooncake;
@@ -16,6 +17,7 @@ using namespace smooth_ui_toolkit::lvgl_cpp;
 
 namespace {
 static constexpr uint32_t BATTERY_PUBLISH_INTERVAL_MS = 60000;
+static constexpr uint32_t TIME_REFRESH_INTERVAL_MS = 1000;
 }
 
 AppCounter::AppCounter()
@@ -35,12 +37,15 @@ void AppCounter::onOpen()
     _key_manager = std::make_unique<input::KeyManager>();
     _reset_requested = false;
     _diagnostics_visible = false;
+    _last_status_update = 0;
+    _last_time_update = 0;
     _last_battery_publish = 0;
     _last_published_battery = 255;
 
     {
         LvglLockGuard lock;
         createUi();
+        refreshTime(true);
         refreshValue();
         refreshStatus();
     }
@@ -77,6 +82,11 @@ void AppCounter::onRunning()
 
     const uint32_t now = GetHAL().millis();
     publishBatteryIfNeeded();
+
+    if (now - _last_time_update > TIME_REFRESH_INTERVAL_MS) {
+        LvglLockGuard lock;
+        refreshTime();
+    }
 
     if (now - _last_status_update > 1000) {
         LvglLockGuard lock;
@@ -149,6 +159,31 @@ void AppCounter::reset()
     (void)counter_mqtt::publishCounterValue(_count);
     LvglLockGuard lock;
     refreshValue();
+}
+
+void AppCounter::refreshTime(bool force)
+{
+    if (!_label_time) {
+        return;
+    }
+
+    const uint32_t now_ms = GetHAL().millis();
+    if (!force && now_ms - _last_time_update < TIME_REFRESH_INTERVAL_MS) {
+        return;
+    }
+
+    std::time_t now = std::time(nullptr);
+    std::tm local_time = {};
+    if (localtime_r(&now, &local_time) == nullptr) {
+        lv_label_set_text(_label_time, "--:--");
+        _last_time_update = now_ms;
+        return;
+    }
+
+    char buffer[8];
+    std::snprintf(buffer, sizeof(buffer), "%02d:%02d", local_time.tm_hour, local_time.tm_min);
+    lv_label_set_text(_label_time, buffer);
+    _last_time_update = now_ms;
 }
 
 void AppCounter::refreshValue()
@@ -272,6 +307,13 @@ void AppCounter::createUi()
     lv_obj_set_style_radius(_panel, 0, 0);
     lv_obj_set_style_pad_all(_panel, 0, 0);
 
+    _label_time = lv_label_create(_panel);
+    lv_label_set_text(_label_time, "--:--");
+    lv_obj_set_style_text_color(_label_time, lv_color_hex(0xBFBFBF), 0);
+    lv_obj_set_style_text_font(_label_time, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_align(_label_time, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(_label_time, LV_ALIGN_TOP_MID, 0, 28);
+
     _label_value = lv_label_create(_panel);
     lv_label_set_text(_label_value, "0");
     lv_obj_set_style_text_color(_label_value, lv_color_hex(0xFFFFFF), 0);
@@ -330,6 +372,7 @@ void AppCounter::createUi()
 
 void AppCounter::destroyUi()
 {
+    _label_time = nullptr;
     _label_value = nullptr;
     _label_status = nullptr;
     _button_reset = nullptr;
