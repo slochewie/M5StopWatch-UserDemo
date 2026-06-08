@@ -43,6 +43,15 @@ constexpr EventBits_t EXIT_BIT = BIT0;
 constexpr EventBits_t MQTT_TEST_CONNECTED_BIT = BIT0;
 constexpr EventBits_t MQTT_TEST_ERROR_BIT = BIT1;
 constexpr const char* JSON_TYPE = "application/json";
+constexpr const char* CSS_TYPE = "text/css; charset=utf-8";
+constexpr const char* JS_TYPE = "application/javascript; charset=utf-8";
+
+extern const char configure_ap_html_start[] asm("_binary_configure_ap_html_start");
+extern const char configure_ap_html_end[] asm("_binary_configure_ap_html_end");
+extern const char configure_ap_css_start[] asm("_binary_configure_ap_css_start");
+extern const char configure_ap_css_end[] asm("_binary_configure_ap_css_end");
+extern const char configure_ap_js_start[] asm("_binary_configure_ap_js_start");
+extern const char configure_ap_js_end[] asm("_binary_configure_ap_js_end");
 
 std::mutex g_session_mutex;
 EventGroupHandle_t g_active_event_group = nullptr;
@@ -53,7 +62,6 @@ constexpr const char* CAPTIVE_URLS[] = {
     "/library/test/success.html",
 };
 
-const char INDEX_HTML[] = R"HTML(<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>M5 Configure</title><style>body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;background:#090909;color:#f5f5f7;margin:0;padding:24px}main{max-width:620px;margin:auto}.card{background:#171717;border:1px solid #333;border-radius:18px;padding:18px;margin:14px 0}label{display:block;color:#bbb;margin:12px 0 5px}input,select{width:100%;box-sizing:border-box;background:#0b0b0b;color:white;border:1px solid #444;border-radius:12px;padding:12px;font-size:16px}button{border:0;border-radius:12px;background:#0a84ff;color:white;padding:12px 14px;margin:8px 8px 0 0;font-weight:700}.secondary{background:#333}.danger{background:#ff453a}.status{white-space:pre-wrap;color:#a7f0a7}.toggleRow{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:12px 0}.switch{position:relative;display:inline-block;width:58px;height:32px}.switch input{display:none}.slider{position:absolute;cursor:pointer;inset:0;background:#444;border-radius:999px;transition:.2s}.slider:before{content:"";position:absolute;height:24px;width:24px;left:4px;top:4px;background:white;border-radius:50%;transition:.2s}input:checked+.slider{background:#0a84ff}input:checked+.slider:before{transform:translateX(26px)}.hint{font-size:13px;color:#999;margin-top:6px}.preview{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:#0b0b0b;border:1px solid #333;border-radius:12px;padding:10px;margin-top:10px;color:#ddd;overflow-wrap:anywhere}.hidden{display:none}.saved{border-color:#236d32}</style></head><body><main><div class="card"><h1>M5StopWatch Configure</h1><p>Configure network, MQTT, device name, and counter topic.</p><div id="status" class="status">Loading...</div></div><form id="form" class="card"><h2>Wi-Fi</h2><button type="button" class="secondary" id="scan">Scan</button><label>Nearby SSID</label><select id="ssid_select"><option value="">Scan first</option></select><label>Wi-Fi Network (SSID)</label><input id="wifi_ssid"><div class="hint">Select a scanned network or enter one manually.</div><label>Password</label><input id="wifi_password" type="password"><h2>MQTT</h2><div class="toggleRow"><div><b>Encryption</b><div class="hint">Off = mqtt://, On = mqtts://</div></div><label class="switch"><input id="mqtt_encrypt" type="checkbox"><span class="slider"></span></label></div><label>Broker IP or Domain</label><input id="mqtt_host" placeholder="smbhub.local or 192.168.75.61"><label>Port</label><input id="mqtt_port" inputmode="numeric" pattern="[0-9]*" value="1883"><div class="hint">Full URI preview</div><div id="mqtt_preview" class="preview">mqtt://:1883</div><label>MQTT Username</label><input id="mqtt_username"><label>MQTT Password</label><input id="mqtt_password" type="password"><div class="hint">Used to authenticate with your MQTT broker.</div><button type="button" class="secondary" id="mqtt_test">Test MQTT Connection</button><h2>Counter</h2><label>Device Name</label><input id="device_name"><div class="hint">Used as the device identifier and MQTT client name.</div><label>Counter Topic</label><input id="counter_topic"><div class="hint">Example: counters/capacity/state</div><button type="submit">Save</button><button type="button" class="secondary" id="reload">Reload</button><button type="button" class="secondary" id="close">Close Portal</button></form><div id="saved_card" class="card saved hidden"><h2>Settings Saved</h2><p>Changes will take effect after reboot.</p><button type="button" class="danger" id="reboot">Reboot Device</button></div></main><script>const ids=['device_name','wifi_ssid','wifi_password','mqtt_username','mqtt_password','counter_topic'];const el=id=>document.getElementById(id);function st(s){el('status').textContent=s}function mqttUri(){const prefix=el('mqtt_encrypt').checked?'mqtts://':'mqtt://';const host=el('mqtt_host').value.trim();const port=(el('mqtt_port').value.trim()||'1883');return prefix+host+':'+port}function updatePreview(){el('mqtt_preview').textContent=mqttUri()}function parseMqttUri(uri){let u=uri||'';let secure=false;if(u.startsWith('mqtts://')){secure=true;u=u.slice(8)}else if(u.startsWith('mqtt://')){u=u.slice(7)}let host=u;let port='1883';const slash=host.indexOf('/');if(slash>=0)host=host.slice(0,slash);const colon=host.lastIndexOf(':');if(colon>0){port=host.slice(colon+1)||'1883';host=host.slice(0,colon)}el('mqtt_encrypt').checked=secure;el('mqtt_host').value=host;el('mqtt_port').value=port||'1883';updatePreview()}function payload(){const b={};ids.forEach(k=>b[k]=el(k).value);b.mqtt_uri=mqttUri();return b}function showSaved(){el('saved_card').classList.remove('hidden')}async function load(){const r=await fetch('/config');const c=await r.json();ids.forEach(k=>{if(c[k]!==undefined)el(k).value=c[k]});parseMqttUri(c.mqtt_uri||'');st('AP: '+(c.ap_ssid||'')+'\nURL: '+(c.ap_url||''))}async function save(e){e.preventDefault();const r=await fetch('/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload())});st(await r.text());showSaved()}async function testMqtt(){st('Testing MQTT connection...');const r=await fetch('/mqtt/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload())});st(await r.text())}async function scan(){st('Scanning...');const r=await fetch('/wifi/scan');const j=await r.json();const s=el('ssid_select');s.innerHTML='';j.networks.forEach(n=>{const o=document.createElement('option');o.value=n.ssid;o.textContent=n.ssid+' RSSI '+n.rssi;s.appendChild(o)});st('Scan complete')}async function reboot(){st('Rebooting device...');await fetch('/reboot',{method:'POST'})}el('form').addEventListener('submit',save);el('reload').addEventListener('click',load);el('scan').addEventListener('click',scan);el('mqtt_test').addEventListener('click',testMqtt);el('reboot').addEventListener('click',reboot);el('ssid_select').addEventListener('change',()=>{if(el('ssid_select').value)el('wifi_ssid').value=el('ssid_select').value});el('close').addEventListener('click',async()=>{await fetch('/close',{method:'POST'});st('Portal closing')});['mqtt_encrypt','mqtt_host','mqtt_port'].forEach(id=>el(id).addEventListener('input',updatePreview));['mqtt_encrypt','mqtt_host','mqtt_port'].forEach(id=>el(id).addEventListener('change',updatePreview));load().catch(e=>st('Load failed: '+e));</script></body></html>)HTML";
 
 struct MqttTestContext {
     EventGroupHandle_t event_group = nullptr;
@@ -297,7 +305,7 @@ private:
     bool start_server()
     {
         httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-        config.max_uri_handlers = 18;
+        config.max_uri_handlers = 20;
         config.uri_match_fn = httpd_uri_match_wildcard;
         config.recv_wait_timeout = 15;
         config.send_wait_timeout = 15;
@@ -307,6 +315,8 @@ private:
             return false;
         }
         httpd_uri_t index = {.uri = "/", .method = HTTP_GET, .handler = &Session::handle_index, .user_ctx = this};
+        httpd_uri_t css = {.uri = "/configure_ap.css", .method = HTTP_GET, .handler = &Session::handle_css, .user_ctx = this};
+        httpd_uri_t js = {.uri = "/configure_ap.js", .method = HTTP_GET, .handler = &Session::handle_js, .user_ctx = this};
         httpd_uri_t config_get = {.uri = "/config", .method = HTTP_GET, .handler = &Session::handle_config_get, .user_ctx = this};
         httpd_uri_t config_post = {.uri = "/config", .method = HTTP_POST, .handler = &Session::handle_config_post, .user_ctx = this};
         httpd_uri_t mqtt_test = {.uri = "/mqtt/test", .method = HTTP_POST, .handler = &Session::handle_mqtt_test, .user_ctx = this};
@@ -315,6 +325,8 @@ private:
         httpd_uri_t reboot = {.uri = "/reboot", .method = HTTP_POST, .handler = &Session::handle_reboot, .user_ctx = this};
         httpd_uri_t captive = {.uri = nullptr, .method = HTTP_GET, .handler = &Session::handle_captive, .user_ctx = this};
         ret = httpd_register_uri_handler(_server, &index);
+        if (ret == ESP_OK) ret = httpd_register_uri_handler(_server, &css);
+        if (ret == ESP_OK) ret = httpd_register_uri_handler(_server, &js);
         if (ret == ESP_OK) ret = httpd_register_uri_handler(_server, &config_get);
         if (ret == ESP_OK) ret = httpd_register_uri_handler(_server, &config_post);
         if (ret == ESP_OK) ret = httpd_register_uri_handler(_server, &mqtt_test);
@@ -386,7 +398,27 @@ private:
     static esp_err_t handle_index(httpd_req_t* req)
     {
         httpd_resp_set_type(req, "text/html; charset=utf-8");
-        httpd_resp_send(req, INDEX_HTML, HTTPD_RESP_USE_STRLEN);
+        httpd_resp_send(req,
+                        configure_ap_html_start,
+                        configure_ap_html_end - configure_ap_html_start);
+        return ESP_OK;
+    }
+
+    static esp_err_t handle_css(httpd_req_t* req)
+    {
+        httpd_resp_set_type(req, CSS_TYPE);
+        httpd_resp_send(req,
+                        configure_ap_css_start,
+                        configure_ap_css_end - configure_ap_css_start);
+        return ESP_OK;
+    }
+
+    static esp_err_t handle_js(httpd_req_t* req)
+    {
+        httpd_resp_set_type(req, JS_TYPE);
+        httpd_resp_send(req,
+                        configure_ap_js_start,
+                        configure_ap_js_end - configure_ap_js_start);
         return ESP_OK;
     }
 
