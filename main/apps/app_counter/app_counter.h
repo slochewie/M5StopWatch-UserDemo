@@ -21,6 +21,7 @@ public:
 private:
     std::unique_ptr<input::KeyManager> _key_manager;
     lv_obj_t* _panel = nullptr;
+    lv_obj_t* _label_time = nullptr;
     lv_obj_t* _label_value = nullptr;
     lv_obj_t* _label_status = nullptr;
     lv_obj_t* _button_reset = nullptr;
@@ -33,6 +34,7 @@ private:
 
     int32_t _count = 0;
     uint32_t _last_status_update = 0;
+    uint32_t _last_time_update = 0;
     uint32_t _last_battery_publish = 0;
     uint8_t _last_published_battery = 255;
     bool _reset_requested = false;
@@ -41,6 +43,7 @@ private:
     void increment();
     void decrement();
     void reset();
+    void refreshTime(bool force = false);
     void refreshValue();
     void refreshStatus();
     void refreshDiagnostics();
