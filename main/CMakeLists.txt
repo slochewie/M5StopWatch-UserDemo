@@ -25,4 +25,6 @@ idf_component_register(
     EMBED_TXTFILES
         "hal/utils/config_ap/assets/badge_config_ap.html"
         "hal/utils/configure_ap/assets/configure_ap.html"
+        "hal/utils/configure_ap/assets/configure_ap.css"
+        "hal/utils/configure_ap/assets/configure_ap.js"
 )
