@@ -1,6 +1,7 @@
 #include "counter_mqtt.h"
 
 #include <device_config.h>
+#include <hal/hal.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -49,8 +50,9 @@ std::string s_battery_topic;
 
 void applyLocalTimezone()
 {
-    setenv("TZ", LOCAL_TIMEZONE, 1);
-    tzset();
+    // Store this in HAL settings too. HAL::rtc_init() otherwise defaults to GMT0,
+    // which makes App Setup and the launcher header show UTC.
+    GetHAL().setTimezone(LOCAL_TIMEZONE);
 }
 
 std::string deriveBatteryTopic(const std::string& counter_topic)
@@ -364,30 +366,30 @@ void handleTimeData(const char* payload)
         return;
     }
 
-    applyLocalTimezone();
+    // Keep the hardware RTC in sync with the corrected system epoch. HAL stores
+    // the timezone in NVS, so Launcher and App Setup use Pacific local time.
+    GetHAL().syncSystemTimeToRtc();
 
-    char local_buffer[32] = {};
     std::tm local_tm = {};
     if (localtime_r(&epoch, &local_tm) != nullptr) {
-        std::snprintf(local_buffer,
-                      sizeof(local_buffer),
-                      "%04d-%02d-%02d %02d:%02d:%02d",
-                      local_tm.tm_year + 1900,
-                      local_tm.tm_mon + 1,
-                      local_tm.tm_mday,
-                      local_tm.tm_hour,
-                      local_tm.tm_min,
-                      local_tm.tm_sec);
+        ESP_LOGI(TAG,
+                 "System time synced from %s: epoch=%lld local=%04d-%02d-%02d %02d:%02d:%02d TZ=%s",
+                 TIME_TOPIC,
+                 static_cast<long long>(epoch),
+                 local_tm.tm_year + 1900,
+                 local_tm.tm_mon + 1,
+                 local_tm.tm_mday,
+                 local_tm.tm_hour,
+                 local_tm.tm_min,
+                 local_tm.tm_sec,
+                 getenv("TZ") == nullptr ? "<unset>" : getenv("TZ"));
     } else {
-        std::snprintf(local_buffer, sizeof(local_buffer), "localtime failed");
+        ESP_LOGI(TAG,
+                 "System time synced from %s: epoch=%lld TZ=%s",
+                 TIME_TOPIC,
+                 static_cast<long long>(epoch),
+                 getenv("TZ") == nullptr ? "<unset>" : getenv("TZ"));
     }
-
-    ESP_LOGI(TAG,
-             "System time synced from %s: epoch=%lld local=%s TZ=%s",
-             TIME_TOPIC,
-             static_cast<long long>(epoch),
-             local_buffer,
-             getenv("TZ") == nullptr ? "<unset>" : getenv("TZ"));
 }
 
 void handleData(esp_mqtt_event_handle_t event)
