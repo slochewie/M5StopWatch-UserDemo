@@ -6,7 +6,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <string>
+#include <sys/time.h>
 
 #include <esp_err.h>
 #include <esp_event.h>
@@ -23,6 +25,8 @@ namespace counter_mqtt {
 namespace {
 
 static constexpr const char* TAG = "CounterMQTT";
+static constexpr const char* TIME_TOPIC = "system/time/epoch";
+static constexpr time_t MIN_VALID_EPOCH = 1700000000;  // 2023-11-14 sanity floor.
 static constexpr int WIFI_CONNECTED_BIT = BIT0;
 static constexpr int WIFI_FAIL_BIT = BIT1;
 static constexpr int WIFI_MAXIMUM_RETRY = 8;
@@ -274,14 +278,83 @@ bool parseCounterPayload(const char* payload, int32_t& value)
     return true;
 }
 
-bool eventTopicMatches(esp_mqtt_event_handle_t event)
+bool parseEpochPayload(const char* payload, time_t& epoch)
 {
-    if (event == nullptr || event->topic == nullptr || s_counter_topic.empty()) {
+    if (payload == nullptr) {
         return false;
     }
 
-    return event->topic_len == static_cast<int>(s_counter_topic.size()) &&
-           std::strncmp(event->topic, s_counter_topic.c_str(), event->topic_len) == 0;
+    char* end = nullptr;
+    long long parsed = std::strtoll(payload, &end, 10);
+    if (end != payload) {
+        epoch = static_cast<time_t>(parsed);
+        return epoch >= MIN_VALID_EPOCH;
+    }
+
+    const char* key = std::strstr(payload, "epoch");
+    if (key == nullptr) {
+        key = std::strstr(payload, "value");
+    }
+    if (key == nullptr) {
+        return false;
+    }
+
+    const char* colon = std::strchr(key, ':');
+    if (colon == nullptr) {
+        return false;
+    }
+
+    parsed = std::strtoll(colon + 1, &end, 10);
+    if (end == colon + 1) {
+        return false;
+    }
+
+    epoch = static_cast<time_t>(parsed);
+    return epoch >= MIN_VALID_EPOCH;
+}
+
+bool eventTopicMatches(esp_mqtt_event_handle_t event, const char* topic)
+{
+    if (event == nullptr || event->topic == nullptr || topic == nullptr || topic[0] == '\0') {
+        return false;
+    }
+
+    const size_t topic_len = std::strlen(topic);
+    return event->topic_len == static_cast<int>(topic_len) &&
+           std::strncmp(event->topic, topic, event->topic_len) == 0;
+}
+
+void handleCounterData(const char* payload)
+{
+    int32_t parsed = 0;
+    if (!parseCounterPayload(payload, parsed)) {
+        ESP_LOGW(TAG, "Ignoring unsupported counter payload: %s", payload);
+        return;
+    }
+
+    setLatestValue(parsed);
+    ESP_LOGI(TAG, "Received %s = %ld", s_counter_topic.c_str(), static_cast<long>(parsed));
+}
+
+void handleTimeData(const char* payload)
+{
+    time_t epoch = 0;
+    if (!parseEpochPayload(payload, epoch)) {
+        ESP_LOGW(TAG, "Ignoring unsupported time payload: %s", payload);
+        return;
+    }
+
+    timeval tv = {
+        .tv_sec = epoch,
+        .tv_usec = 0,
+    };
+
+    if (settimeofday(&tv, nullptr) != 0) {
+        ESP_LOGW(TAG, "settimeofday failed for epoch %lld", static_cast<long long>(epoch));
+        return;
+    }
+
+    ESP_LOGI(TAG, "System time synced from %s: %lld", TIME_TOPIC, static_cast<long long>(epoch));
 }
 
 void handleData(esp_mqtt_event_handle_t event)
@@ -290,23 +363,20 @@ void handleData(esp_mqtt_event_handle_t event)
         return;
     }
 
-    if (!eventTopicMatches(event)) {
-        return;
-    }
-
     char payload[128] = {};
     const int copy_len = std::min(event->data_len, static_cast<int>(sizeof(payload) - 1));
     std::memcpy(payload, event->data, copy_len);
     payload[copy_len] = '\0';
 
-    int32_t parsed = 0;
-    if (!parseCounterPayload(payload, parsed)) {
-        ESP_LOGW(TAG, "Ignoring unsupported payload: %s", payload);
+    if (eventTopicMatches(event, s_counter_topic.c_str())) {
+        handleCounterData(payload);
         return;
     }
 
-    setLatestValue(parsed);
-    ESP_LOGI(TAG, "Received %s = %ld", s_counter_topic.c_str(), static_cast<long>(parsed));
+    if (eventTopicMatches(event, TIME_TOPIC)) {
+        handleTimeData(payload);
+        return;
+    }
 }
 
 void mqttEventHandler(void* handler_args, esp_event_base_t base, int32_t event_id, void* event_data)
@@ -321,6 +391,8 @@ void mqttEventHandler(void* handler_args, esp_event_base_t base, int32_t event_i
                 esp_mqtt_client_subscribe(s_client, s_counter_topic.c_str(), 1);
                 ESP_LOGI(TAG, "Subscribed: %s", s_counter_topic.c_str());
             }
+            esp_mqtt_client_subscribe(s_client, TIME_TOPIC, 1);
+            ESP_LOGI(TAG, "Subscribed: %s", TIME_TOPIC);
             break;
 
         case MQTT_EVENT_DISCONNECTED:
