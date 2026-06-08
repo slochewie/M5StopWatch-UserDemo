@@ -11,12 +11,29 @@
 #include <hal/hal.h>
 #include <lv_demos.h>
 #include <apps/common/audio/audio.h>
+#include <cstdlib>
+#include <ctime>
 
 using namespace mooncake;
 using namespace smooth_ui_toolkit;
 
+namespace {
+
+void setLocalTimezone()
+{
+    // POSIX timezone for America/Los_Angeles:
+    // UTC-8 standard time, UTC-7 daylight time,
+    // DST starts second Sunday in March and ends first Sunday in November.
+    setenv("TZ", "PST8PDT,M3.2.0,M11.1.0", 1);
+    tzset();
+}
+
+}  // namespace
+
 extern "C" void app_main(void)
 {
+    setLocalTimezone();
+
     mclog::set_level(mclog::level_info);
     mclog::set_time_format(mclog::time_format_unix_milliseconds);
 
