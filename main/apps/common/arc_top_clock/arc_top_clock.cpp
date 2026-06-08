@@ -10,6 +10,7 @@
 #include <string>
 #include <ctime>
 #include <cmath>
+#include <cstdlib>
 
 using namespace uitk;
 using namespace uitk::lvgl_cpp;
@@ -19,8 +20,22 @@ static const std::vector<int> _label_rotation_map = {-100, -46, 0, 32, 84};
 static const std::vector<int> _label_x_map        = {3, 3, 1, 4, 4};
 static const std::vector<int> _label_y_map        = {0, 0, -2, -1, -1};
 
+namespace {
+
+void apply_local_timezone()
+{
+    // POSIX timezone for America/Los_Angeles.
+    // PST = UTC-8, PDT = UTC-7, DST from second Sunday in March to first Sunday in November.
+    setenv("TZ", "PST8PDT,M3.2.0,M11.1.0", 1);
+    tzset();
+}
+
+}  // namespace
+
 void ArcTopClock::init()
 {
+    apply_local_timezone();
+
     setSize(114, 36);
     setBorderWidth(0);
     setOutlineWidth(0);
@@ -44,10 +59,15 @@ void ArcTopClock::init()
 void ArcTopClock::update(bool force)
 {
     if (force || GetHAL().millis() - update_time_count > updateInterval) {
-        std::time_t now    = std::time(nullptr);
-        std::tm* localTime = std::localtime(&now);
-        set_clock_to(fmt::format("{:02d}:{:02d}", localTime->tm_hour, localTime->tm_min));
-        // set_clock_to("00:00");
+        apply_local_timezone();
+
+        std::time_t now = std::time(nullptr);
+        std::tm local_time = {};
+        if (localtime_r(&now, &local_time) == nullptr) {
+            return;
+        }
+
+        set_clock_to(fmt::format("{:02d}:{:02d}", local_time.tm_hour, local_time.tm_min));
         update_time_count = GetHAL().millis();
     }
 }
