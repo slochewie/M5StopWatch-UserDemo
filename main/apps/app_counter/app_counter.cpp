@@ -127,9 +127,6 @@ bool AppCounter::syncLatestMqttValue(bool refresh_ui)
 
 void AppCounter::increment()
 {
-    // Re-drain MQTT immediately before publishing. This prevents a local
-    // button press from using stale state even if another MQTT update arrived
-    // after the top-of-loop sync but before this handler runs.
     syncLatestMqttValue(false);
 
     ++_count;
@@ -140,9 +137,6 @@ void AppCounter::increment()
 
 void AppCounter::decrement()
 {
-    // Re-drain MQTT immediately before publishing. This prevents a local
-    // button press from using stale state even if another MQTT update arrived
-    // after the top-of-loop sync but before this handler runs.
     syncLatestMqttValue(false);
 
     if (_count > 0) {
@@ -175,13 +169,24 @@ void AppCounter::refreshTime(bool force)
     std::time_t now = std::time(nullptr);
     std::tm local_time = {};
     if (localtime_r(&now, &local_time) == nullptr) {
-        lv_label_set_text(_label_time, "--:--");
+        lv_label_set_text(_label_time, "--:-- --");
         _last_time_update = now_ms;
         return;
     }
 
-    char buffer[8];
-    std::snprintf(buffer, sizeof(buffer), "%02d:%02d", local_time.tm_hour, local_time.tm_min);
+    const bool is_pm = local_time.tm_hour >= 12;
+    int hour_12 = local_time.tm_hour % 12;
+    if (hour_12 == 0) {
+        hour_12 = 12;
+    }
+
+    char buffer[12];
+    std::snprintf(buffer,
+                  sizeof(buffer),
+                  "%d:%02d %s",
+                  hour_12,
+                  local_time.tm_min,
+                  is_pm ? "PM" : "AM");
     lv_label_set_text(_label_time, buffer);
     _last_time_update = now_ms;
 }
@@ -308,7 +313,7 @@ void AppCounter::createUi()
     lv_obj_set_style_pad_all(_panel, 0, 0);
 
     _label_time = lv_label_create(_panel);
-    lv_label_set_text(_label_time, "--:--");
+    lv_label_set_text(_label_time, "--:-- --");
     lv_obj_set_style_text_color(_label_time, lv_color_hex(0xBFBFBF), 0);
     lv_obj_set_style_text_font(_label_time, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_align(_label_time, LV_TEXT_ALIGN_CENTER, 0);
