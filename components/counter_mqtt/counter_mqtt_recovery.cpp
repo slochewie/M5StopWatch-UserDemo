@@ -8,6 +8,12 @@ namespace counter_mqtt {
 void recoverConnection()
 {
     common::wifi::recoverConnection();
+
+    if (!common::mqtt::isStarted()) {
+        begin();
+        return;
+    }
+
     common::mqtt::recoverConnection();
 }
 
