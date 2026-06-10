@@ -6,6 +6,7 @@
 #include <mooncake.h>
 #include <mooncake_log.h>
 #include <cstdint>
+#include <cstdio>
 #include <functional>
 #include <smooth_ui_toolkit.hpp>
 #include <smooth_lvgl.hpp>
@@ -13,9 +14,16 @@
 #include <fmt/chrono.h>
 #include <hal/hal.h>
 #include <memory>
+#include <string>
 #include <vector>
 #include <lvgl.h>
 #include <src/draw/lv_image_dsc.h>
+
+#include <counter_mqtt.h>
+#include <esp_err.h>
+#include <esp_netif.h>
+#include <esp_netif_ip_addr.h>
+#include <esp_wifi.h>
 
 using namespace smooth_ui_toolkit;
 using namespace smooth_ui_toolkit::lvgl_cpp;
@@ -83,7 +91,7 @@ public:
 
 private:
     bool _is_tracking;
-    lv_indev_state_t _last_state;  // 记录上一帧的状态
+    lv_indev_state_t _last_state;  // 记录上一帧状态
     lv_point_t _start_point;
     int _screen_height;
     int _top_threshold;
@@ -91,11 +99,100 @@ private:
 };
 
 namespace status_bar_view {
+namespace {
+
+static constexpr uint32_t COLOR_CONNECTED = 0x19C25F;
+static constexpr uint32_t COLOR_DISCONNECTED = 0xD94141;
+
+bool isWifiConnected()
+{
+    wifi_ap_record_t ap_info = {};
+    return esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK;
+}
+
+std::string localIpAddress()
+{
+    if (!isWifiConnected()) {
+        return "IP --";
+    }
+
+    esp_netif_t* netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (netif == nullptr) {
+        return "IP --";
+    }
+
+    esp_netif_ip_info_t ip_info = {};
+    if (esp_netif_get_ip_info(netif, &ip_info) != ESP_OK || ip_info.ip.addr == 0) {
+        return "IP --";
+    }
+
+    char buffer[24] = {};
+    std::snprintf(buffer, sizeof(buffer), IPSTR, IP2STR(&ip_info.ip));
+    return buffer;
+}
+
+const char* deviceName()
+{
+    const char* configured_name = counter_mqtt::deviceName();
+    if (configured_name == nullptr || configured_name[0] == '\0') {
+        return "M5StopWatch";
+    }
+    return configured_name;
+}
+
+}  // namespace
 
 class Widget {
 public:
     virtual ~Widget()     = default;
     virtual void update() = 0;
+};
+
+class StatusInfo : public Widget {
+public:
+    StatusInfo(lv_obj_t* parent, uint32_t colorPrimary)
+    {
+        _device_name = std::make_unique<Label>(parent);
+        _device_name->setText("");
+        _device_name->setTextColor(lv_color_hex(colorPrimary));
+        _device_name->setTextFont(&lv_font_montserrat_16);
+        _device_name->align(LV_ALIGN_TOP_MID, 0, 19);
+
+        _ip_address = std::make_unique<Label>(parent);
+        _ip_address->setText("");
+        _ip_address->setTextColor(lv_color_hex(colorPrimary));
+        _ip_address->setTextFont(&lv_font_montserrat_14);
+        _ip_address->align(LV_ALIGN_TOP_MID, 0, 38);
+
+        _wifi_status = std::make_unique<Label>(parent);
+        _wifi_status->setText("WiFi");
+        _wifi_status->setTextFont(&lv_font_montserrat_14);
+        _wifi_status->align(LV_ALIGN_LEFT_MID, 22, 20);
+
+        _mqtt_status = std::make_unique<Label>(parent);
+        _mqtt_status->setText("MQTT");
+        _mqtt_status->setTextFont(&lv_font_montserrat_14);
+        _mqtt_status->align(LV_ALIGN_LEFT_MID, 78, 20);
+
+        update();
+    }
+
+    void update() override
+    {
+        const bool wifi_connected = isWifiConnected();
+        const bool mqtt_connected = counter_mqtt::isConnected();
+
+        _device_name->setText(deviceName());
+        _ip_address->setText(localIpAddress());
+        _wifi_status->setTextColor(lv_color_hex(wifi_connected ? COLOR_CONNECTED : COLOR_DISCONNECTED));
+        _mqtt_status->setTextColor(lv_color_hex(mqtt_connected ? COLOR_CONNECTED : COLOR_DISCONNECTED));
+    }
+
+private:
+    std::unique_ptr<Label> _device_name;
+    std::unique_ptr<Label> _ip_address;
+    std::unique_ptr<Label> _wifi_status;
+    std::unique_ptr<Label> _mqtt_status;
 };
 
 class BatteryIcon {
@@ -173,10 +270,10 @@ public:
         _label_level->setText("");
         _label_level->setTextColor(lv_color_hex(colorPrimary));
         _label_level->setTextFont(&lv_font_montserrat_16);
-        _label_level->align(LV_ALIGN_RIGHT_MID, -78, 8);
+        _label_level->align(LV_ALIGN_RIGHT_MID, -78, 20);
 
         _battery_icon = std::make_unique<BatteryIcon>(parent, colorSecondary, colorPrimary);
-        _battery_icon->align(LV_ALIGN_RIGHT_MID, -43, 8);
+        _battery_icon->align(LV_ALIGN_RIGHT_MID, -43, 20);
 
         update();
     }
@@ -203,12 +300,13 @@ public:
         _panel->setScrollbarMode(LV_SCROLLBAR_MODE_OFF);
         _panel->align(LV_ALIGN_TOP_MID, 0, 0);
         _panel->setBorderWidth(0);
-        _panel->setSize(158, 65);
+        _panel->setSize(210, 96);
         _panel->setRadius(27);
         _panel->setPadding(0, 0, 0, 0);
         _panel->removeFlag(LV_OBJ_FLAG_SCROLLABLE);
         _panel->onClick().connect([this]() { hide(); });
 
+        _widgets.push_back(std::make_unique<StatusInfo>(_panel->get(), colorPrimary));
         _widgets.push_back(std::make_unique<Battery>(_panel->get(), colorSecondary, colorPrimary));
 
         _panel->setPos(0, _pos_y_hide);
@@ -262,7 +360,7 @@ public:
 
 private:
     const int _pos_y_show = -17;
-    const int _pos_y_hide = -85;
+    const int _pos_y_hide = -116;
 
     std::unique_ptr<Container> _panel;
     std::vector<std::unique_ptr<Widget>> _widgets;
