@@ -493,32 +493,6 @@ void begin()
     ESP_LOGI(TAG, "Started");
 }
 
-void recoverConnection()
-{
-    ESP_LOGI(TAG, "Recover connection requested");
-
-    if (!s_started) {
-        begin();
-        return;
-    }
-
-    if (!s_wifi_started) {
-        (void)ensureWifiConnected();
-    }
-
-    if (s_client == nullptr) {
-        begin();
-        return;
-    }
-
-    if (!s_connected) {
-        esp_err_t err = esp_mqtt_client_reconnect(s_client);
-        if (err != ESP_OK) {
-            ESP_LOGW(TAG, "MQTT reconnect failed: %s", esp_err_to_name(err));
-        }
-    }
-}
-
 bool isStarted()
 {
     return s_started;
@@ -532,11 +506,8 @@ bool isConnected()
 bool publishCounterValue(int32_t value)
 {
     if (!s_started || !s_connected || s_client == nullptr) {
-        recoverConnection();
-        if (!s_started || !s_connected || s_client == nullptr) {
-            ESP_LOGW(TAG, "Publish skipped, MQTT not connected");
-            return false;
-        }
+        ESP_LOGW(TAG, "Publish skipped, MQTT not connected");
+        return false;
     }
 
     if (s_counter_topic.empty()) {
@@ -568,11 +539,8 @@ bool publishCounterValue(int32_t value)
 bool publishBatteryPercentage(uint8_t percent)
 {
     if (!s_started || !s_connected || s_client == nullptr) {
-        recoverConnection();
-        if (!s_started || !s_connected || s_client == nullptr) {
-            ESP_LOGW(TAG, "Battery publish skipped, MQTT not connected");
-            return false;
-        }
+        ESP_LOGW(TAG, "Battery publish skipped, MQTT not connected");
+        return false;
     }
 
     if (s_battery_topic.empty()) {
