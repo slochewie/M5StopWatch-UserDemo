@@ -5,6 +5,7 @@
 namespace counter_mqtt {
 
 void begin();
+void recoverConnection();
 bool isStarted();
 bool isConnected();
 bool publishCounterValue(int32_t value);
