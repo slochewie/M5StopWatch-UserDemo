@@ -11,7 +11,7 @@
 #include <hal/hal.h>
 #include <lv_demos.h>
 #include <apps/common/audio/audio.h>
-#include <counter_mqtt.h>
+#include <counter_service.h>
 #include <cstdlib>
 #include <ctime>
 
@@ -24,9 +24,6 @@ static constexpr uint32_t NETWORK_RECOVERY_INTERVAL_MS = 5000;
 
 void setLocalTimezone()
 {
-    // POSIX timezone for America/Los_Angeles:
-    // UTC-8 standard time, UTC-7 daylight time,
-    // DST starts second Sunday in March and ends first Sunday in November.
     setenv("TZ", "PST8PDT,M3.2.0,M11.1.0", 1);
     tzset();
 }
@@ -38,7 +35,7 @@ void runSystemNetworkTick()
 
     if (last_recovery_ms == 0 || now - last_recovery_ms >= NETWORK_RECOVERY_INTERVAL_MS) {
         last_recovery_ms = now;
-        counter_mqtt::recoverConnection();
+        counter_service::recoverConnection();
     }
 }
 
@@ -53,9 +50,7 @@ extern "C" void app_main(void)
 
     GetHAL().init();
 
-    // Start networking immediately at boot so retained MQTT topics can sync time
-    // and counter state without opening the Counter app.
-    counter_mqtt::begin();
+    counter_service::begin();
 
     ui_hal::on_delay([](uint32_t ms) { GetHAL().delay(ms); });
     ui_hal::on_get_tick([]() { return GetHAL().millis(); });
