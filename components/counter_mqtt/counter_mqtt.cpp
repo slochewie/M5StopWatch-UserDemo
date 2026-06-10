@@ -2,6 +2,8 @@
 
 #include <device_config.h>
 #include <hal/hal.h>
+#include <apps/common/network/mqtt_service.h>
+#include <apps/common/network/wifi_service.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -11,16 +13,9 @@
 #include <string>
 #include <sys/time.h>
 
-#include <esp_err.h>
-#include <esp_event.h>
 #include <esp_log.h>
-#include <esp_netif.h>
-#include <esp_wifi.h>
 #include <freertos/FreeRTOS.h>
-#include <freertos/event_groups.h>
 #include <freertos/portmacro.h>
-#include <mqtt_client.h>
-#include <nvs_flash.h>
 
 namespace counter_mqtt {
 namespace {
@@ -29,24 +24,15 @@ static constexpr const char* TAG = "CounterMQTT";
 static constexpr const char* TIME_TOPIC = "system/time/epoch";
 static constexpr const char* LOCAL_TIMEZONE = "PST8PDT,M3.2.0,M11.1.0";
 static constexpr time_t MIN_VALID_EPOCH = 1700000000;  // 2023-11-14 sanity floor.
-static constexpr int WIFI_CONNECTED_BIT = BIT0;
-static constexpr int WIFI_FAIL_BIT = BIT1;
-static constexpr int WIFI_MAXIMUM_RETRY = 8;
-
-esp_mqtt_client_handle_t s_client = nullptr;
-EventGroupHandle_t s_wifi_event_group = nullptr;
-bool s_started = false;
-bool s_connected = false;
-bool s_has_latest = false;
-bool s_netif_ready = false;
-bool s_wifi_started = false;
-int s_wifi_retry_count = 0;
-int32_t s_latest_value = 0;
-portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 
 device_config::Config s_config;
 std::string s_counter_topic;
 std::string s_battery_topic;
+bool s_loaded = false;
+bool s_started = false;
+bool s_has_latest = false;
+int32_t s_latest_value = 0;
+portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 
 void applyLocalTimezone()
 {
@@ -90,6 +76,7 @@ void loadRuntimeConfig()
 
     s_counter_topic = s_config.counter_topic;
     s_battery_topic = deriveBatteryTopic(s_counter_topic);
+    s_loaded = true;
 
     ESP_LOGI(TAG, "Loaded config: device=%s, broker=%s, topic=%s, battery=%s, ssid=%s",
              s_config.device_name.c_str(),
@@ -97,155 +84,6 @@ void loadRuntimeConfig()
              s_counter_topic.c_str(),
              s_battery_topic.c_str(),
              s_config.wifi_ssid.empty() ? "<empty>" : s_config.wifi_ssid.c_str());
-}
-
-void wifiEventHandler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data)
-{
-    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
-        esp_wifi_connect();
-        return;
-    }
-
-    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
-        s_wifi_started = false;
-        if (s_wifi_retry_count < WIFI_MAXIMUM_RETRY) {
-            ++s_wifi_retry_count;
-            ESP_LOGW(TAG, "Wi-Fi disconnected, retry %d/%d", s_wifi_retry_count, WIFI_MAXIMUM_RETRY);
-            esp_wifi_connect();
-        } else if (s_wifi_event_group != nullptr) {
-            xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
-        }
-        return;
-    }
-
-    if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
-        auto* event = static_cast<ip_event_got_ip_t*>(event_data);
-        s_wifi_retry_count = 0;
-        ESP_LOGI(TAG, "Wi-Fi got IP: " IPSTR, IP2STR(&event->ip_info.ip));
-        if (s_wifi_event_group != nullptr) {
-            xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
-        }
-    }
-}
-
-bool ensureNetworkStackReady()
-{
-    if (s_netif_ready) {
-        return true;
-    }
-
-    esp_err_t err = nvs_flash_init();
-    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_LOGW(TAG, "NVS init requested erase: %s", esp_err_to_name(err));
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        err = nvs_flash_init();
-    }
-    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-        ESP_LOGE(TAG, "nvs_flash_init failed: %s", esp_err_to_name(err));
-        return false;
-    }
-
-    err = esp_netif_init();
-    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-        ESP_LOGE(TAG, "esp_netif_init failed: %s", esp_err_to_name(err));
-        return false;
-    }
-
-    err = esp_event_loop_create_default();
-    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-        ESP_LOGE(TAG, "esp_event_loop_create_default failed: %s", esp_err_to_name(err));
-        return false;
-    }
-
-    s_netif_ready = true;
-    ESP_LOGI(TAG, "Network stack ready");
-    return true;
-}
-
-bool ensureWifiConnected()
-{
-    if (s_wifi_started) {
-        return true;
-    }
-
-    if (s_config.wifi_ssid.empty()) {
-        ESP_LOGE(TAG, "Wi-Fi SSID is empty. Open Configure and save Wi-Fi settings.");
-        return false;
-    }
-
-    if (!ensureNetworkStackReady()) {
-        return false;
-    }
-
-    s_wifi_event_group = xEventGroupCreate();
-    if (s_wifi_event_group == nullptr) {
-        ESP_LOGE(TAG, "Failed to create Wi-Fi event group");
-        return false;
-    }
-
-    esp_netif_create_default_wifi_sta();
-
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    cfg.nvs_enable = false;
-    esp_err_t err = esp_wifi_init(&cfg);
-    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-        ESP_LOGE(TAG, "esp_wifi_init failed: %s", esp_err_to_name(err));
-        return false;
-    }
-
-    esp_event_handler_instance_t wifi_any_id = nullptr;
-    esp_event_handler_instance_t got_ip = nullptr;
-    esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifiEventHandler, nullptr, &wifi_any_id);
-    esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifiEventHandler, nullptr, &got_ip);
-
-    wifi_config_t wifi_config = {};
-    std::strncpy(reinterpret_cast<char*>(wifi_config.sta.ssid),
-                 s_config.wifi_ssid.c_str(),
-                 sizeof(wifi_config.sta.ssid) - 1);
-    std::strncpy(reinterpret_cast<char*>(wifi_config.sta.password),
-                 s_config.wifi_password.c_str(),
-                 sizeof(wifi_config.sta.password) - 1);
-    wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
-    wifi_config.sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;
-
-    err = esp_wifi_set_mode(WIFI_MODE_STA);
-    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-        ESP_LOGE(TAG, "esp_wifi_set_mode failed: %s", esp_err_to_name(err));
-        return false;
-    }
-
-    err = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_wifi_set_config failed: %s", esp_err_to_name(err));
-        return false;
-    }
-
-    err = esp_wifi_set_ps(WIFI_PS_NONE);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "esp_wifi_set_ps failed: %s", esp_err_to_name(err));
-    }
-
-    ESP_LOGI(TAG, "Starting Wi-Fi STA: %s", s_config.wifi_ssid.c_str());
-    err = esp_wifi_start();
-    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-        ESP_LOGE(TAG, "esp_wifi_start failed: %s", esp_err_to_name(err));
-        return false;
-    }
-
-    EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
-                                           WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
-                                           pdFALSE,
-                                           pdFALSE,
-                                           pdMS_TO_TICKS(15000));
-
-    if (bits & WIFI_CONNECTED_BIT) {
-        s_wifi_started = true;
-        ESP_LOGI(TAG, "Wi-Fi connected");
-        return true;
-    }
-
-    ESP_LOGW(TAG, "Wi-Fi not connected yet");
-    return false;
 }
 
 void setLatestValue(int32_t value)
@@ -323,22 +161,11 @@ bool parseEpochPayload(const char* payload, time_t& epoch)
     return epoch >= MIN_VALID_EPOCH;
 }
 
-bool eventTopicMatches(esp_mqtt_event_handle_t event, const char* topic)
-{
-    if (event == nullptr || event->topic == nullptr || topic == nullptr || topic[0] == '\0') {
-        return false;
-    }
-
-    const size_t topic_len = std::strlen(topic);
-    return event->topic_len == static_cast<int>(topic_len) &&
-           std::strncmp(event->topic, topic, event->topic_len) == 0;
-}
-
 void handleCounterData(const char* payload)
 {
     int32_t parsed = 0;
     if (!parseCounterPayload(payload, parsed)) {
-        ESP_LOGW(TAG, "Ignoring unsupported counter payload: %s", payload);
+        ESP_LOGW(TAG, "Ignoring unsupported counter payload: %s", payload == nullptr ? "<null>" : payload);
         return;
     }
 
@@ -350,7 +177,7 @@ void handleTimeData(const char* payload)
 {
     time_t epoch = 0;
     if (!parseEpochPayload(payload, epoch)) {
-        ESP_LOGW(TAG, "Ignoring unsupported time payload: %s", payload);
+        ESP_LOGW(TAG, "Ignoring unsupported time payload: %s", payload == nullptr ? "<null>" : payload);
         return;
     }
 
@@ -392,60 +219,20 @@ void handleTimeData(const char* payload)
     }
 }
 
-void handleData(esp_mqtt_event_handle_t event)
+void handleMqttMessage(const char* topic, const char* payload, void* user_data)
 {
-    if (event == nullptr || event->topic == nullptr || event->data == nullptr) {
+    if (topic == nullptr) {
         return;
     }
 
-    char payload[128] = {};
-    const int copy_len = std::min(event->data_len, static_cast<int>(sizeof(payload) - 1));
-    std::memcpy(payload, event->data, copy_len);
-    payload[copy_len] = '\0';
-
-    if (eventTopicMatches(event, s_counter_topic.c_str())) {
+    if (s_counter_topic == topic) {
         handleCounterData(payload);
         return;
     }
 
-    if (eventTopicMatches(event, TIME_TOPIC)) {
+    if (std::strcmp(topic, TIME_TOPIC) == 0) {
         handleTimeData(payload);
         return;
-    }
-}
-
-void mqttEventHandler(void* handler_args, esp_event_base_t base, int32_t event_id, void* event_data)
-{
-    auto* event = static_cast<esp_mqtt_event_handle_t>(event_data);
-
-    switch (event_id) {
-        case MQTT_EVENT_CONNECTED:
-            s_connected = true;
-            ESP_LOGI(TAG, "Connected");
-            if (!s_counter_topic.empty()) {
-                esp_mqtt_client_subscribe(s_client, s_counter_topic.c_str(), 1);
-                ESP_LOGI(TAG, "Subscribed: %s", s_counter_topic.c_str());
-            }
-            esp_mqtt_client_subscribe(s_client, TIME_TOPIC, 1);
-            ESP_LOGI(TAG, "Subscribed: %s", TIME_TOPIC);
-            break;
-
-        case MQTT_EVENT_DISCONNECTED:
-            s_connected = false;
-            ESP_LOGW(TAG, "Disconnected");
-            break;
-
-        case MQTT_EVENT_DATA:
-            handleData(event);
-            break;
-
-        case MQTT_EVENT_ERROR:
-            s_connected = false;
-            ESP_LOGW(TAG, "MQTT error");
-            break;
-
-        default:
-            break;
     }
 }
 
@@ -454,38 +241,35 @@ void mqttEventHandler(void* handler_args, esp_event_base_t base, int32_t event_i
 void begin()
 {
     if (s_started) {
+        common::wifi::recoverConnection();
+        common::mqtt::recoverConnection();
         return;
     }
 
     loadRuntimeConfig();
 
-    if (!ensureWifiConnected()) {
+    common::wifi::Config wifi_config = {
+        .ssid = s_config.wifi_ssid,
+        .password = s_config.wifi_password,
+    };
+
+    if (!common::wifi::begin(wifi_config)) {
+        ESP_LOGW(TAG, "Wi-Fi not connected yet; MQTT start deferred");
         return;
     }
 
-    esp_mqtt_client_config_t mqtt_cfg = {};
-    mqtt_cfg.broker.address.uri = s_config.mqtt_uri.c_str();
-    if (!s_config.device_name.empty()) {
-        mqtt_cfg.credentials.client_id = s_config.device_name.c_str();
-    }
-    if (!s_config.mqtt_username.empty()) {
-        mqtt_cfg.credentials.username = s_config.mqtt_username.c_str();
-    }
-    if (!s_config.mqtt_password.empty()) {
-        mqtt_cfg.credentials.authentication.password = s_config.mqtt_password.c_str();
-    }
+    common::mqtt::subscribe(s_counter_topic.c_str(), 1, handleMqttMessage);
+    common::mqtt::subscribe(TIME_TOPIC, 1, handleMqttMessage);
 
-    s_client = esp_mqtt_client_init(&mqtt_cfg);
-    if (s_client == nullptr) {
-        ESP_LOGE(TAG, "Failed to initialize MQTT client");
-        return;
-    }
+    common::mqtt::Config mqtt_config = {
+        .uri = s_config.mqtt_uri,
+        .client_id = s_config.device_name,
+        .username = s_config.mqtt_username,
+        .password = s_config.mqtt_password,
+    };
 
-    esp_mqtt_client_register_event(s_client, MQTT_EVENT_ANY, mqttEventHandler, nullptr);
-
-    esp_err_t err = esp_mqtt_client_start(s_client);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to start MQTT client: %s", esp_err_to_name(err));
+    if (!common::mqtt::begin(mqtt_config)) {
+        ESP_LOGW(TAG, "MQTT not started yet");
         return;
     }
 
@@ -495,21 +279,16 @@ void begin()
 
 bool isStarted()
 {
-    return s_started;
+    return s_started || common::mqtt::isStarted();
 }
 
 bool isConnected()
 {
-    return s_connected;
+    return common::mqtt::isConnected();
 }
 
 bool publishCounterValue(int32_t value)
 {
-    if (!s_started || !s_connected || s_client == nullptr) {
-        ESP_LOGW(TAG, "Publish skipped, MQTT not connected");
-        return false;
-    }
-
     if (s_counter_topic.empty()) {
         ESP_LOGW(TAG, "Publish skipped, counter topic is empty");
         return false;
@@ -526,23 +305,15 @@ bool publishCounterValue(int32_t value)
                   static_cast<long>(value),
                   s_config.device_name.empty() ? "m5stopwatch" : s_config.device_name.c_str());
 
-    int msg_id = esp_mqtt_client_publish(s_client, s_counter_topic.c_str(), payload, 0, 1, 1);
-    if (msg_id < 0) {
-        ESP_LOGW(TAG, "Publish failed: %ld", static_cast<long>(value));
-        return false;
+    const bool ok = common::mqtt::publish(s_counter_topic.c_str(), payload, 1, true);
+    if (ok) {
+        ESP_LOGI(TAG, "Published %s = %ld", s_counter_topic.c_str(), static_cast<long>(value));
     }
-
-    ESP_LOGI(TAG, "Published %s = %ld", s_counter_topic.c_str(), static_cast<long>(value));
-    return true;
+    return ok;
 }
 
 bool publishBatteryPercentage(uint8_t percent)
 {
-    if (!s_started || !s_connected || s_client == nullptr) {
-        ESP_LOGW(TAG, "Battery publish skipped, MQTT not connected");
-        return false;
-    }
-
     if (s_battery_topic.empty()) {
         ESP_LOGW(TAG, "Battery publish skipped, topic is empty");
         return false;
@@ -559,14 +330,11 @@ bool publishBatteryPercentage(uint8_t percent)
                   static_cast<unsigned>(percent),
                   s_config.device_name.empty() ? "m5stopwatch" : s_config.device_name.c_str());
 
-    int msg_id = esp_mqtt_client_publish(s_client, s_battery_topic.c_str(), payload, 0, 1, 1);
-    if (msg_id < 0) {
-        ESP_LOGW(TAG, "Battery publish failed: %u", static_cast<unsigned>(percent));
-        return false;
+    const bool ok = common::mqtt::publish(s_battery_topic.c_str(), payload, 1, true);
+    if (ok) {
+        ESP_LOGI(TAG, "Published %s = %u", s_battery_topic.c_str(), static_cast<unsigned>(percent));
     }
-
-    ESP_LOGI(TAG, "Published %s = %u", s_battery_topic.c_str(), static_cast<unsigned>(percent));
-    return true;
+    return ok;
 }
 
 bool takeLatestValue(int32_t& value)
@@ -586,18 +354,15 @@ bool takeLatestValue(int32_t& value)
 
 const char* statusText()
 {
-    if (!s_wifi_started) {
-        return "WiFi ...";
+    if (!common::wifi::isConnected()) {
+        return common::wifi::statusText();
     }
-    if (!s_started) {
-        return "MQTT --";
-    }
-    return s_connected ? "MQTT OK" : "MQTT ...";
+    return common::mqtt::statusText();
 }
 
 const char* brokerUri()
 {
-    return s_config.mqtt_uri.empty() ? "" : s_config.mqtt_uri.c_str();
+    return s_config.mqtt_uri.empty() ? common::mqtt::brokerUri() : s_config.mqtt_uri.c_str();
 }
 
 const char* counterTopic()
@@ -617,7 +382,7 @@ const char* deviceName()
 
 const char* wifiSsid()
 {
-    return s_config.wifi_ssid.empty() ? "" : s_config.wifi_ssid.c_str();
+    return s_config.wifi_ssid.empty() ? common::wifi::ssid() : s_config.wifi_ssid.c_str();
 }
 
 }  // namespace counter_mqtt
