@@ -105,7 +105,7 @@ void Hal::pmic_init()
     // disable WDT, default is open
     _pm1->wdtSet(0);
     //  hold LDO power close when power off, keep power for RTC
-    _pm1->ldoSetPowerHold(true);
+    _pm1->ldoSetPowerHold(false);
 
     // set charge enable or disable, this setting will keep working after power off
     _pm1->setChargeEnable(true);
