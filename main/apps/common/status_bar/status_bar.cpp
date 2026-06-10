@@ -19,7 +19,7 @@
 #include <lvgl.h>
 #include <src/draw/lv_image_dsc.h>
 
-#include <counter_mqtt.h>
+#include <counter_service.h>
 #include <esp_err.h>
 #include <esp_netif.h>
 #include <esp_netif_ip_addr.h>
@@ -133,7 +133,7 @@ std::string localIpAddress()
 
 const char* deviceName()
 {
-    const char* configured_name = counter_mqtt::deviceName();
+    const char* configured_name = counter_service::deviceName();
     if (configured_name == nullptr || configured_name[0] == '\0') {
         return "M5StopWatch";
     }
@@ -180,7 +180,7 @@ public:
     void update() override
     {
         const bool wifi_connected = isWifiConnected();
-        const bool mqtt_connected = counter_mqtt::isConnected();
+        const bool mqtt_connected = counter_service::isConnected();
 
         _device_name->setText(deviceName());
         _ip_address->setText(localIpAddress());
@@ -258,222 +258,7 @@ private:
     std::unique_ptr<Bar> _bar;
     std::unique_ptr<Container> _bat_top;
     std::unique_ptr<Image> _lightning_icon;
-
-    uint32_t _color_primary = 0;
-};
-
-class Battery : public Widget {
-public:
-    Battery(lv_obj_t* parent, uint32_t colorSecondary, uint32_t colorPrimary)
-    {
-        _label_level = std::make_unique<Label>(parent);
-        _label_level->setText("");
-        _label_level->setTextColor(lv_color_hex(colorPrimary));
-        _label_level->setTextFont(&lv_font_montserrat_16);
-        _label_level->align(LV_ALIGN_RIGHT_MID, -78, 20);
-
-        _battery_icon = std::make_unique<BatteryIcon>(parent, colorSecondary, colorPrimary);
-        _battery_icon->align(LV_ALIGN_RIGHT_MID, -43, 20);
-
-        update();
-    }
-
-    void update() override
-    {
-        auto level = GetHAL().getBatteryLevel();
-        _label_level->setText(fmt::format("{}%", level));
-        _battery_icon->setLevel(level);
-        _battery_icon->setCharging(GetHAL().isBatteryCharging());
-    }
-
-private:
-    std::unique_ptr<Label> _label_level;
-    std::unique_ptr<BatteryIcon> _battery_icon;
-};
-
-class StatusBarView {
-public:
-    StatusBarView(lv_obj_t* parent, uint32_t colorSecondary, uint32_t colorPrimary)
-    {
-        _panel = std::make_unique<uitk::lvgl_cpp::Container>(lv_screen_active());
-        _panel->setBgColor(lv_color_hex(colorSecondary));
-        _panel->setScrollbarMode(LV_SCROLLBAR_MODE_OFF);
-        _panel->align(LV_ALIGN_TOP_MID, 0, 0);
-        _panel->setBorderWidth(0);
-        _panel->setSize(210, 96);
-        _panel->setRadius(27);
-        _panel->setPadding(0, 0, 0, 0);
-        _panel->removeFlag(LV_OBJ_FLAG_SCROLLABLE);
-        _panel->onClick().connect([this]() { hide(); });
-
-        _widgets.push_back(std::make_unique<StatusInfo>(_panel->get(), colorPrimary));
-        _widgets.push_back(std::make_unique<Battery>(_panel->get(), colorSecondary, colorPrimary));
-
-        _panel->setPos(0, _pos_y_hide);
-        _panel->setHidden(true);
-        _is_hidden                                 = true;
-        _pos_y_anim.springOptions().bounce         = 0.1;
-        _pos_y_anim.springOptions().visualDuration = 0.3;
-        // _pos_y_anim.easingOptions().duration = 0.3;
-        _pos_y_anim.teleport(_pos_y_hide);
-    }
-
-    void update()
-    {
-        _pos_y_anim.update();
-        if (!_pos_y_anim.done()) {
-            _panel->setPos(0, _pos_y_anim.directValue());
-        } else {
-            if (_hide_panel_flag) {
-                _hide_panel_flag = false;
-                _panel->setHidden(true);
-            }
-        }
-
-        if (GetHAL().millis() - _last_update_tick > 1000) {
-            _last_update_tick = GetHAL().millis();
-            for (auto& widget : _widgets) {
-                widget->update();
-            }
-        }
-    }
-
-    void show()
-    {
-        _panel->moveForeground();
-        _panel->setHidden(false);
-        _pos_y_anim = _pos_y_show;
-        _is_hidden  = false;
-    }
-
-    void hide()
-    {
-        _pos_y_anim      = _pos_y_hide;
-        _is_hidden       = true;
-        _hide_panel_flag = true;
-    }
-
-    bool isHidden() const
-    {
-        return _is_hidden;
-    }
-
-private:
-    const int _pos_y_show = -17;
-    const int _pos_y_hide = -116;
-
-    std::unique_ptr<Container> _panel;
-    std::vector<std::unique_ptr<Widget>> _widgets;
-    AnimateValue _pos_y_anim;
-    bool _is_hidden            = false;
-    bool _hide_panel_flag      = false;
-    uint32_t _last_update_tick = 0;
+    uint32_t _color_primary;
 };
 
 }  // namespace status_bar_view
-
-/**
- * @brief
- *
- */
-class StatusBar {
-public:
-    void init(lv_obj_t* parent, uint32_t colorSecondary, uint32_t colorPrimary, bool silent)
-    {
-        _status_bar_gesture            = std::make_unique<StatuBarGesture>();
-        _status_bar_gesture->onGesture = [&]() { handle_gesture(); };
-        _status_bar_gesture->init();
-
-        _status_bar_view = std::make_unique<status_bar_view::StatusBarView>(parent, colorSecondary, colorPrimary);
-        _is_first_show   = !silent;
-
-        if (!silent) {
-            _status_bar_view->show();
-            _status_bar_show_tick = GetHAL().millis();
-        }
-    }
-
-    void update()
-    {
-        _status_bar_gesture->update();
-        _status_bar_view->update();
-        update_visibility();
-    }
-
-    void show()
-    {
-        handle_gesture();
-    }
-
-    bool isHidden() const
-    {
-        return _status_bar_view == nullptr ? true : _status_bar_view->isHidden();
-    }
-
-private:
-    std::unique_ptr<StatuBarGesture> _status_bar_gesture;
-    std::unique_ptr<status_bar_view::StatusBarView> _status_bar_view;
-    uint32_t _status_bar_show_tick = 0;
-    bool _is_first_show            = true;
-
-    void handle_gesture()
-    {
-        _status_bar_view->show();
-        _status_bar_show_tick = GetHAL().millis();
-    }
-
-    void update_visibility()
-    {
-        if (!_status_bar_view->isHidden()) {
-            if (GetHAL().millis() - _status_bar_show_tick > (_is_first_show ? 1800 : 6000)) {
-                _is_first_show = false;
-                _status_bar_view->hide();
-            }
-        }
-    }
-};
-
-/**
- * @brief
- *
- */
-namespace view {
-
-static std::unique_ptr<StatusBar> _status_bar;
-
-void create_status_bar(uint32_t colorSecondary, uint32_t colorPrimary, bool silent, lv_obj_t* parent)
-{
-    _status_bar = std::make_unique<StatusBar>();
-    _status_bar->init(parent, colorSecondary, colorPrimary, silent);
-}
-
-void update_status_bar()
-{
-    if (_status_bar) {
-        _status_bar->update();
-    }
-}
-
-void show_status_bar()
-{
-    if (_status_bar) {
-        _status_bar->show();
-    }
-}
-
-bool is_status_bar_hidden()
-{
-    return _status_bar == nullptr ? true : _status_bar->isHidden();
-}
-
-bool is_status_bar_created()
-{
-    return _status_bar != nullptr;
-}
-
-void destroy_status_bar()
-{
-    _status_bar.reset();
-}
-
-}  // namespace view
