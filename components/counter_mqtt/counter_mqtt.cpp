@@ -236,26 +236,19 @@ void handleMqttMessage(const char* topic, const char* payload, void* user_data)
     }
 }
 
-}  // namespace
-
-void begin()
+bool ensureMqttStarted()
 {
-    if (s_started) {
-        common::wifi::recoverConnection();
-        common::mqtt::recoverConnection();
-        return;
+    if (!s_loaded) {
+        loadRuntimeConfig();
     }
 
-    loadRuntimeConfig();
+    if (!common::wifi::isConnected()) {
+        return false;
+    }
 
-    common::wifi::Config wifi_config = {
-        .ssid = s_config.wifi_ssid,
-        .password = s_config.wifi_password,
-    };
-
-    if (!common::wifi::begin(wifi_config)) {
-        ESP_LOGW(TAG, "Wi-Fi not connected yet; MQTT start deferred");
-        return;
+    if (common::mqtt::isStarted()) {
+        common::mqtt::recoverConnection();
+        return true;
     }
 
     common::mqtt::subscribe(s_counter_topic.c_str(), 1, handleMqttMessage);
@@ -270,11 +263,33 @@ void begin()
 
     if (!common::mqtt::begin(mqtt_config)) {
         ESP_LOGW(TAG, "MQTT not started yet");
-        return;
+        return false;
     }
 
     s_started = true;
     ESP_LOGI(TAG, "Started");
+    return true;
+}
+
+}  // namespace
+
+void begin()
+{
+    if (!s_loaded) {
+        loadRuntimeConfig();
+    }
+
+    common::wifi::Config wifi_config = {
+        .ssid = s_config.wifi_ssid,
+        .password = s_config.wifi_password,
+    };
+
+    if (!common::wifi::begin(wifi_config)) {
+        ESP_LOGW(TAG, "Wi-Fi not connected yet; MQTT start deferred");
+        return;
+    }
+
+    (void)ensureMqttStarted();
 }
 
 bool isStarted()
@@ -289,6 +304,11 @@ bool isConnected()
 
 bool publishCounterValue(int32_t value)
 {
+    if (!ensureMqttStarted()) {
+        ESP_LOGW(TAG, "Publish skipped, MQTT not ready");
+        return false;
+    }
+
     if (s_counter_topic.empty()) {
         ESP_LOGW(TAG, "Publish skipped, counter topic is empty");
         return false;
@@ -314,6 +334,11 @@ bool publishCounterValue(int32_t value)
 
 bool publishBatteryPercentage(uint8_t percent)
 {
+    if (!ensureMqttStarted()) {
+        ESP_LOGW(TAG, "Battery publish skipped, MQTT not ready");
+        return false;
+    }
+
     if (s_battery_topic.empty()) {
         ESP_LOGW(TAG, "Battery publish skipped, topic is empty");
         return false;
@@ -355,8 +380,14 @@ bool takeLatestValue(int32_t& value)
 const char* statusText()
 {
     if (!common::wifi::isConnected()) {
+        common::wifi::recoverConnection();
         return common::wifi::statusText();
     }
+
+    if (!common::mqtt::isConnected()) {
+        (void)ensureMqttStarted();
+    }
+
     return common::mqtt::statusText();
 }
 
