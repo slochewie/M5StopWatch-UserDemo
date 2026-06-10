@@ -136,7 +136,8 @@ void Hal::pmic_init()
     _pm1->gpioSetMode(PMG2_CHG_STAT, M5PM1_GPIO_MODE_INPUT);
     _pm1->gpioSetPull(PMG2_CHG_STAT, M5PM1_GPIO_PULL_NONE);
 
-    _pm1->setSingleResetDisable(true);
+    // Keep the PMIC factory power-button state machine available so double-click
+    // power can power off the StopWatch instead of rebooting/resetting it.
 
     uint16_t battery_mv = 0;
     if (_pm1->readVbat(&battery_mv) == M5PM1_OK) {
