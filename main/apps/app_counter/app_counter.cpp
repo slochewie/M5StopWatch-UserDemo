@@ -25,6 +25,10 @@ static constexpr uint64_t PHASE2_LIGHT_SLEEP_INTERVAL_US = IMU_WAKE_SAMPLE_INTER
 static constexpr float WAKE_ACCEL_Y_THRESHOLD = 0.30f;
 static constexpr float WAKE_ACCEL_Z_THRESHOLD = 0.35f;
 static constexpr uint8_t WAKE_CONFIRM_SAMPLES = 3;
+static constexpr uint32_t NETWORK_WAKE_RECOVERY_DELAY_MS = 2000;
+
+bool s_network_recover_pending = false;
+uint32_t s_network_recover_after_ms = 0;
 
 void enterPhase2LightSleepTick()
 {
@@ -59,6 +63,8 @@ void AppCounter::onOpen()
     _last_published_battery = 255;
     _wake_sample_count = 0;
     _sleeping = false;
+    s_network_recover_pending = false;
+    s_network_recover_after_ms = 0;
 
     {
         LvglLockGuard lock;
@@ -86,9 +92,8 @@ void AppCounter::onRunning()
         const bool touch_wake = hasTouchInput();
         const bool orientation_wake = updateOrientationWake();
 
-        syncLatestMqttValue(false);
-        publishBatteryIfNeeded();
-
+        // Do not perform MQTT sync or publish work while display/light sleep is active.
+        // Long sleep periods can leave the Wi-Fi/MQTT stack stale; recover after wake instead.
         if (button_wake || touch_wake || orientation_wake) {
             wakeFromDisplaySleep();
             LvglLockGuard lock;
@@ -101,6 +106,12 @@ void AppCounter::onRunning()
 
         enterPhase2LightSleepTick();
         return;
+    }
+
+    if (s_network_recover_pending &&
+        static_cast<int32_t>(now - s_network_recover_after_ms) >= 0) {
+        s_network_recover_pending = false;
+        counter_mqtt::recoverConnection();
     }
 
     syncLatestMqttValue(true);
@@ -241,6 +252,8 @@ void AppCounter::wakeFromDisplaySleep()
     _sleeping = false;
     _wake_sample_count = 0;
     GetHAL().setBackLightBrightness(_saved_brightness > 0 ? _saved_brightness : 80);
+    s_network_recover_pending = true;
+    s_network_recover_after_ms = GetHAL().millis() + NETWORK_WAKE_RECOVERY_DELAY_MS;
     markActivity();
 }
 

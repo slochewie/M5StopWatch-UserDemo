@@ -1,5 +1,7 @@
 idf_component_register(
-    SRCS "counter_mqtt.cpp"
+    SRCS
+        "counter_mqtt.cpp"
+        "counter_mqtt_recovery.cpp"
     INCLUDE_DIRS "."
     REQUIRES
         mqtt
