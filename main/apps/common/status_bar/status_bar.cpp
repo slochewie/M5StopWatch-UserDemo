@@ -88,15 +88,16 @@ void setLabelText(lv_obj_t* label, const char* text)
 
 void create_status_bar(uint32_t colorSecondary, uint32_t colorPrimary, bool silent, lv_obj_t* parent)
 {
-    (void)silent;
+    s_color_secondary = colorSecondary;
+    s_color_primary = colorPrimary;
 
     if (s_panel != nullptr) {
         update_status_bar();
+        if (silent) {
+            lv_obj_add_flag(s_panel, LV_OBJ_FLAG_HIDDEN);
+        }
         return;
     }
-
-    s_color_secondary = colorSecondary;
-    s_color_primary = colorPrimary;
 
     if (parent == nullptr) {
         parent = lv_screen_active();
@@ -104,36 +105,37 @@ void create_status_bar(uint32_t colorSecondary, uint32_t colorPrimary, bool sile
 
     s_panel = lv_obj_create(parent);
     lv_obj_remove_flag(s_panel, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(s_panel, 466, 64);
+    lv_obj_set_size(s_panel, 320, 92);
     lv_obj_align(s_panel, LV_ALIGN_TOP_MID, 0, 0);
     lv_obj_set_style_bg_color(s_panel, lv_color_hex(s_color_secondary), 0);
+    lv_obj_set_style_bg_opa(s_panel, LV_OPA_90, 0);
     lv_obj_set_style_border_width(s_panel, 0, 0);
-    lv_obj_set_style_radius(s_panel, 0, 0);
+    lv_obj_set_style_radius(s_panel, 28, 0);
     lv_obj_set_style_pad_all(s_panel, 0, 0);
 
     s_label_device = lv_label_create(s_panel);
     lv_obj_set_style_text_font(s_label_device, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(s_label_device, lv_color_hex(s_color_primary), 0);
-    lv_obj_align(s_label_device, LV_ALIGN_TOP_MID, 0, 8);
+    lv_obj_align(s_label_device, LV_ALIGN_TOP_MID, 0, 10);
 
     s_label_ip = lv_label_create(s_panel);
     lv_obj_set_style_text_font(s_label_ip, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(s_label_ip, lv_color_hex(s_color_primary), 0);
-    lv_obj_align(s_label_ip, LV_ALIGN_TOP_MID, 0, 30);
+    lv_obj_align(s_label_ip, LV_ALIGN_TOP_MID, 0, 32);
 
     s_label_wifi = lv_label_create(s_panel);
     lv_label_set_text(s_label_wifi, "WiFi");
     lv_obj_set_style_text_font(s_label_wifi, &lv_font_montserrat_14, 0);
-    lv_obj_align(s_label_wifi, LV_ALIGN_LEFT_MID, 22, 14);
+    lv_obj_align(s_label_wifi, LV_ALIGN_BOTTOM_LEFT, 24, -12);
 
     s_label_mqtt = lv_label_create(s_panel);
     lv_label_set_text(s_label_mqtt, "MQTT");
     lv_obj_set_style_text_font(s_label_mqtt, &lv_font_montserrat_14, 0);
-    lv_obj_align(s_label_mqtt, LV_ALIGN_LEFT_MID, 78, 14);
+    lv_obj_align(s_label_mqtt, LV_ALIGN_BOTTOM_LEFT, 82, -12);
 
     s_battery_bar = lv_bar_create(s_panel);
     lv_obj_set_size(s_battery_bar, 34, 12);
-    lv_obj_align(s_battery_bar, LV_ALIGN_RIGHT_MID, -30, 15);
+    lv_obj_align(s_battery_bar, LV_ALIGN_BOTTOM_RIGHT, -24, -15);
     lv_bar_set_range(s_battery_bar, 0, 100);
     lv_obj_set_style_bg_color(s_battery_bar, lv_color_hex(s_color_secondary), 0);
     lv_obj_set_style_bg_color(s_battery_bar, lv_color_hex(s_color_primary), LV_PART_INDICATOR);
@@ -143,13 +145,17 @@ void create_status_bar(uint32_t colorSecondary, uint32_t colorPrimary, bool sile
     lv_obj_set_style_radius(s_battery_bar, 3, LV_PART_INDICATOR);
 
     s_label_charge = lv_label_create(s_panel);
-    lv_label_set_text(s_label_charge, "⚡");
+    lv_label_set_text(s_label_charge, "*");
     lv_obj_set_style_text_font(s_label_charge, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(s_label_charge, lv_color_hex(s_color_primary), 0);
     lv_obj_align_to(s_label_charge, s_battery_bar, LV_ALIGN_CENTER, 0, -1);
     lv_obj_add_flag(s_label_charge, LV_OBJ_FLAG_HIDDEN);
 
     update_status_bar();
+
+    // The launcher creates this object during normal startup. Do not leave it
+    // visible by default; otherwise it covers the round app carousel.
+    lv_obj_add_flag(s_panel, LV_OBJ_FLAG_HIDDEN);
 }
 
 void update_status_bar()
@@ -160,7 +166,8 @@ void update_status_bar()
 
     const bool wifi_connected = isWifiConnected();
     const bool mqtt_connected = counter_service::isConnected();
-    const uint8_t battery = GetHAL().getBatteryLevel() > 100 ? 100 : GetHAL().getBatteryLevel();
+    const uint8_t raw_battery = GetHAL().getBatteryLevel();
+    const uint8_t battery = raw_battery > 100 ? 100 : raw_battery;
     const bool charging = GetHAL().isBatteryCharging();
     const std::string ip = localIpAddress();
 
@@ -188,7 +195,9 @@ void update_status_bar()
 void show_status_bar()
 {
     if (s_panel != nullptr) {
+        update_status_bar();
         lv_obj_remove_flag(s_panel, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_move_foreground(s_panel);
     }
 }
 
