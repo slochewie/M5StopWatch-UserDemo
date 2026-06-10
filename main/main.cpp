@@ -20,6 +20,8 @@ using namespace smooth_ui_toolkit;
 
 namespace {
 
+static constexpr uint32_t NETWORK_RECOVERY_INTERVAL_MS = 5000;
+
 void setLocalTimezone()
 {
     // POSIX timezone for America/Los_Angeles:
@@ -27,6 +29,17 @@ void setLocalTimezone()
     // DST starts second Sunday in March and ends first Sunday in November.
     setenv("TZ", "PST8PDT,M3.2.0,M11.1.0", 1);
     tzset();
+}
+
+void runSystemNetworkTick()
+{
+    static uint32_t last_recovery_ms = 0;
+    const uint32_t now = GetHAL().millis();
+
+    if (last_recovery_ms == 0 || now - last_recovery_ms >= NETWORK_RECOVERY_INTERVAL_MS) {
+        last_recovery_ms = now;
+        counter_mqtt::recoverConnection();
+    }
 }
 
 }  // namespace
@@ -40,8 +53,8 @@ extern "C" void app_main(void)
 
     GetHAL().init();
 
-    // Start MQTT immediately at boot so the retained time authority topic can
-    // correct the launcher/App Setup clock without opening the Counter app.
+    // Start networking immediately at boot so retained MQTT topics can sync time
+    // and counter state without opening the Counter app.
     counter_mqtt::begin();
 
     ui_hal::on_delay([](uint32_t ms) { GetHAL().delay(ms); });
@@ -54,6 +67,7 @@ extern "C" void app_main(void)
 
     while (1) {
         GetHAL().feedTheDog();
+        runSystemNetworkTick();
         GetMooncake().update();
     }
 }
