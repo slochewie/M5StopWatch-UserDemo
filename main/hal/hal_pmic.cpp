@@ -77,15 +77,6 @@ void bat_reading_task(void* param)
     }
 }
 
-void log_pmic_result(const char* action, m5pm1_err_t result)
-{
-    if (result == M5PM1_OK) {
-        mclog::tagInfo(_tag, "{} ok", action);
-    } else {
-        mclog::tagWarn(_tag, "{} failed: {}", action, static_cast<int>(result));
-    }
-}
-
 }  // namespace
 
 // PMIC IO
@@ -119,15 +110,10 @@ void Hal::pmic_init()
     // set charge enable or disable, this setting will keep working after power off
     _pm1->setChargeEnable(true);
 
-    // The StopWatch schematic routes BMI270 INT1 and RTC INT through PMG0_RTC&IMU_INT
-    // into M5PM1 GPIO0. Configure GPIO0 as a falling-edge wake input, but do not
-    // power down rails here; Phase 2 still uses timer light sleep as the safe fallback.
-    log_pmic_result("PMG0 wake input mode", _pm1->gpioSetMode(PMG0_RTC_IMU_INT, M5PM1_GPIO_MODE_INPUT));
-    log_pmic_result("PMG0 wake pull", _pm1->gpioSetPull(PMG0_RTC_IMU_INT, M5PM1_GPIO_PULL_UP));
-    log_pmic_result("PMG0 wake edge", _pm1->gpioSetWakeEdge(PMG0_RTC_IMU_INT, M5PM1_GPIO_WAKE_FALLING));
-    log_pmic_result("PMG0 wake enable", _pm1->gpioSetWakeEnable(PMG0_RTC_IMU_INT, true));
-    log_pmic_result("PMG0 wake func", _pm1->gpioSetFunc(PMG0_RTC_IMU_INT, M5PM1_GPIO_FUNC_WAKE));
-    log_pmic_result("PMIC wake source clear", _pm1->clearWakeSource(M5PM1_WAKE_SRC_EXT_WAKE));
+    // Keep PMG0 in the factory/default PMIC configuration. Configuring PMG0 as
+    // an explicit wake-function input caused power-button double-click to reboot
+    // instead of powering off on tested hardware. BMI270/orientation wake remains
+    // available through the app-level fallback path.
 
     // drive CHG_PROG low to force active charge programming
     _pm1->gpioSet(PMG3_CHG_PROG, M5PM1_GPIO_MODE_OUTPUT, 0, M5PM1_GPIO_PULL_NONE, M5PM1_GPIO_DRIVE_PUSHPULL);
@@ -136,10 +122,9 @@ void Hal::pmic_init()
     _pm1->gpioSetMode(PMG2_CHG_STAT, M5PM1_GPIO_MODE_INPUT);
     _pm1->gpioSetPull(PMG2_CHG_STAT, M5PM1_GPIO_PULL_NONE);
 
-    // Disable single-click reset so the first click of a double-click does not reboot.
-    // Explicitly enable double-click power-off to restore the factory power-button behavior.
-    log_pmic_result("PMIC single-click reset disable", _pm1->setSingleResetDisable(true));
-    log_pmic_result("PMIC double-click power-off enable", _pm1->setDoubleOffDisable(false));
+    // Match the upstream StopWatch PMIC behavior: prevent accidental single-click
+    // reset while leaving the PMIC's built-in double-click power-off path intact.
+    _pm1->setSingleResetDisable(true);
 
     uint16_t battery_mv = 0;
     if (_pm1->readVbat(&battery_mv) == M5PM1_OK) {
