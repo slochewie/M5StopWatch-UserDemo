@@ -11,7 +11,7 @@
 #include <esp_sleep.h>
 #include <cstdio>
 #include <ctime>
-#include "../../../components/counter_mqtt/counter_mqtt.h"
+#include <counter_service.h>
 
 using namespace mooncake;
 using namespace smooth_ui_toolkit::lvgl_cpp;
@@ -74,7 +74,7 @@ void AppCounter::onOpen()
         refreshStatus();
     }
 
-    counter_mqtt::begin();
+    counter_service::begin();
     publishBatteryIfNeeded(true);
 }
 
@@ -111,7 +111,7 @@ void AppCounter::onRunning()
     if (s_network_recover_pending &&
         static_cast<int32_t>(now - s_network_recover_after_ms) >= 0) {
         s_network_recover_pending = false;
-        counter_mqtt::recoverConnection();
+        counter_service::recoverConnection();
     }
 
     syncLatestMqttValue(true);
@@ -173,7 +173,7 @@ void AppCounter::onClose()
 bool AppCounter::syncLatestMqttValue(bool refresh_ui)
 {
     int32_t mqtt_value = 0;
-    if (!counter_mqtt::takeLatestValue(mqtt_value)) {
+    if (!counter_service::takeLatestValue(mqtt_value)) {
         return false;
     }
 
@@ -194,7 +194,7 @@ void AppCounter::increment()
     syncLatestMqttValue(false);
 
     ++_count;
-    (void)counter_mqtt::publishCounterValue(_count);
+    (void)counter_service::publishValue(_count);
     LvglLockGuard lock;
     refreshValue();
 }
@@ -206,7 +206,7 @@ void AppCounter::decrement()
     if (_count > 0) {
         --_count;
     }
-    (void)counter_mqtt::publishCounterValue(_count);
+    (void)counter_service::publishValue(_count);
     LvglLockGuard lock;
     refreshValue();
 }
@@ -214,7 +214,7 @@ void AppCounter::decrement()
 void AppCounter::reset()
 {
     _count = 0;
-    (void)counter_mqtt::publishCounterValue(_count);
+    (void)counter_service::publishValue(_count);
     LvglLockGuard lock;
     refreshValue();
 }
@@ -338,7 +338,7 @@ void AppCounter::refreshStatus()
     }
 
     _last_status_update = GetHAL().millis();
-    const char* topic = counter_mqtt::counterTopic();
+    const char* topic = counter_service::counterTopic();
     if (topic == nullptr || topic[0] == '\0') {
         topic = "topic not set";
     }
@@ -348,7 +348,7 @@ void AppCounter::refreshStatus()
                   sizeof(buffer),
                   "Bat %u%%   %s\n%s",
                   static_cast<unsigned>(GetHAL().getBatteryLevel()),
-                  counter_mqtt::statusText(),
+                  counter_service::statusText(),
                   topic);
     lv_label_set_text(_label_status, buffer);
 }
@@ -359,11 +359,11 @@ void AppCounter::refreshDiagnostics()
         return;
     }
 
-    const char* device = counter_mqtt::deviceName();
-    const char* ssid = counter_mqtt::wifiSsid();
-    const char* broker = counter_mqtt::brokerUri();
-    const char* topic = counter_mqtt::counterTopic();
-    const char* battery_topic = counter_mqtt::batteryTopic();
+    const char* device = counter_service::deviceName();
+    const char* ssid = counter_service::wifiSsid();
+    const char* broker = counter_service::brokerUri();
+    const char* topic = counter_service::counterTopic();
+    const char* battery_topic = counter_service::batteryTopic();
 
     if (device == nullptr || device[0] == '\0') device = "not set";
     if (ssid == nullptr || ssid[0] == '\0') ssid = "not set";
@@ -382,7 +382,7 @@ void AppCounter::refreshDiagnostics()
                   "Battery Topic:\n%s",
                   device,
                   ssid,
-                  counter_mqtt::statusText(),
+                  counter_service::statusText(),
                   broker,
                   topic,
                   battery_topic);
@@ -422,7 +422,7 @@ void AppCounter::publishBatteryIfNeeded(bool force)
         return;
     }
 
-    if (counter_mqtt::publishBatteryPercentage(battery)) {
+    if (counter_service::publishBatteryPercentage(battery)) {
         _last_published_battery = battery;
         _last_battery_publish = now;
     }
