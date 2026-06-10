@@ -18,6 +18,14 @@ using namespace smooth_ui_toolkit::lvgl_cpp;
 namespace {
 static constexpr uint32_t BATTERY_PUBLISH_INTERVAL_MS = 60000;
 static constexpr uint32_t TIME_REFRESH_INTERVAL_MS = 1000;
+
+// Phase 1 power management: display/backlight sleep only.
+// Do not shut down M5PM1 rails here; IMU, I2C, buttons, and display resume stay powered.
+static constexpr uint32_t DISPLAY_SLEEP_TIMEOUT_MS = 30000;
+static constexpr uint32_t IMU_WAKE_SAMPLE_INTERVAL_MS = 100;
+static constexpr float WAKE_ACCEL_Y_THRESHOLD = 0.30f;
+static constexpr float WAKE_ACCEL_Z_THRESHOLD = 0.35f;
+static constexpr uint8_t WAKE_CONFIRM_SAMPLES = 3;
 }
 
 AppCounter::AppCounter()
@@ -40,7 +48,12 @@ void AppCounter::onOpen()
     _last_status_update = 0;
     _last_time_update = 0;
     _last_battery_publish = 0;
+    _last_activity_ms = GetHAL().millis();
+    _last_wake_sample_ms = 0;
+    _saved_brightness = GetHAL().getBackLightBrightness();
     _last_published_battery = 255;
+    _wake_sample_count = 0;
+    _sleeping = false;
 
     {
         LvglLockGuard lock;
@@ -60,6 +73,29 @@ void AppCounter::onRunning()
         return;
     }
 
+    const uint32_t now = GetHAL().millis();
+
+    if (_sleeping) {
+        GetHAL().updateButtonStates();
+        const bool button_wake = GetHAL().btnA.wasClicked() || GetHAL().btnB.wasClicked();
+        const bool touch_wake = hasTouchInput();
+        const bool orientation_wake = updateOrientationWake();
+
+        // Keep MQTT state fresh while the display is dark, but avoid refreshing hidden UI.
+        syncLatestMqttValue(false);
+        publishBatteryIfNeeded();
+
+        if (button_wake || touch_wake || orientation_wake) {
+            wakeFromDisplaySleep();
+            LvglLockGuard lock;
+            refreshTime(true);
+            refreshValue();
+            refreshStatus();
+            refreshDiagnostics();
+        }
+        return;
+    }
+
     syncLatestMqttValue(true);
 
     if (_reset_requested) {
@@ -68,6 +104,10 @@ void AppCounter::onRunning()
     }
 
     auto event = _key_manager->update();
+    if (event != input::KeyEvent::None) {
+        markActivity();
+    }
+
     if (event == input::KeyEvent::GoHome) {
         close();
         return;
@@ -80,7 +120,6 @@ void AppCounter::onRunning()
         }
     }
 
-    const uint32_t now = GetHAL().millis();
     publishBatteryIfNeeded();
 
     if (now - _last_time_update > TIME_REFRESH_INTERVAL_MS) {
@@ -93,11 +132,18 @@ void AppCounter::onRunning()
         refreshStatus();
         refreshDiagnostics();
     }
+
+    if (now - _last_activity_ms >= DISPLAY_SLEEP_TIMEOUT_MS) {
+        enterDisplaySleep();
+    }
 }
 
 void AppCounter::onClose()
 {
     mclog::tagInfo(getAppInfo().name, "on close");
+    if (_sleeping) {
+        wakeFromDisplaySleep();
+    }
     _key_manager.reset();
     _reset_requested = false;
     _diagnostics_visible = false;
@@ -153,6 +199,71 @@ void AppCounter::reset()
     (void)counter_mqtt::publishCounterValue(_count);
     LvglLockGuard lock;
     refreshValue();
+}
+
+void AppCounter::markActivity()
+{
+    _last_activity_ms = GetHAL().millis();
+}
+
+void AppCounter::enterDisplaySleep()
+{
+    if (_sleeping) {
+        return;
+    }
+
+    _sleeping = true;
+    _wake_sample_count = 0;
+    _last_wake_sample_ms = 0;
+    _saved_brightness = GetHAL().getBackLightBrightness();
+    if (_saved_brightness <= 0) {
+        _saved_brightness = 80;
+    }
+
+    mclog::tagInfo(getAppInfo().name, "enter phase 1 display sleep");
+    GetHAL().setBackLightBrightness(0);
+}
+
+void AppCounter::wakeFromDisplaySleep()
+{
+    if (!_sleeping) {
+        return;
+    }
+
+    mclog::tagInfo(getAppInfo().name, "wake from phase 1 display sleep");
+    _sleeping = false;
+    _wake_sample_count = 0;
+    GetHAL().setBackLightBrightness(_saved_brightness > 0 ? _saved_brightness : 80);
+    markActivity();
+}
+
+bool AppCounter::updateOrientationWake()
+{
+    const uint32_t now = GetHAL().millis();
+    if (_last_wake_sample_ms != 0 && now - _last_wake_sample_ms < IMU_WAKE_SAMPLE_INTERVAL_MS) {
+        return false;
+    }
+    _last_wake_sample_ms = now;
+
+    GetHAL().updateImuData();
+    const auto& imu = GetHAL().getImuData();
+
+    // Hanging upside down from lanyard: Y ~= +1.0, Z ~= 0.0.
+    // Handheld use: Y ~= -0.4, Z ~= +0.9.
+    if (imu.accelY < WAKE_ACCEL_Y_THRESHOLD && imu.accelZ > WAKE_ACCEL_Z_THRESHOLD) {
+        if (_wake_sample_count < WAKE_CONFIRM_SAMPLES) {
+            ++_wake_sample_count;
+        }
+    } else {
+        _wake_sample_count = 0;
+    }
+
+    return _wake_sample_count >= WAKE_CONFIRM_SAMPLES;
+}
+
+bool AppCounter::hasTouchInput()
+{
+    return GetHAL().getTouchPoint().num > 0;
 }
 
 void AppCounter::refreshTime(bool force)
@@ -263,6 +374,7 @@ void AppCounter::refreshDiagnostics()
 void AppCounter::showDiagnostics(bool show)
 {
     _diagnostics_visible = show;
+    markActivity();
     if (!_diagnostics_panel) {
         return;
     }
@@ -395,6 +507,7 @@ void AppCounter::handleResetClicked(lv_event_t* event)
 {
     auto* app = static_cast<AppCounter*>(lv_event_get_user_data(event));
     if (app && !app->_diagnostics_visible) {
+        app->markActivity();
         app->_reset_requested = true;
     }
 }
