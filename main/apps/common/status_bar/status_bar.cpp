@@ -3,106 +3,36 @@
  *
  * SPDX-License-Identifier: MIT
  */
-#include <mooncake.h>
-#include <mooncake_log.h>
-#include <cstdint>
-#include <cstdio>
-#include <functional>
-#include <smooth_ui_toolkit.hpp>
-#include <smooth_lvgl.hpp>
-#include <assets/assets.h>
-#include <fmt/chrono.h>
-#include <hal/hal.h>
-#include <memory>
-#include <string>
-#include <vector>
-#include <lvgl.h>
-#include <src/draw/lv_image_dsc.h>
+#include "status_bar.h"
 
 #include <counter_service.h>
+#include <hal/hal.h>
+
+#include <cstdint>
+#include <cstdio>
+#include <string>
+
 #include <esp_err.h>
 #include <esp_netif.h>
 #include <esp_netif_ip_addr.h>
 #include <esp_wifi.h>
+#include <lvgl.h>
 
-using namespace smooth_ui_toolkit;
-using namespace smooth_ui_toolkit::lvgl_cpp;
-
-/**
- * @brief
- *
- */
-class StatuBarGesture {
-public:
-    std::function<void(void)> onGesture;
-
-    StatuBarGesture() : _is_tracking(false), _last_state(LV_INDEV_STATE_REL)
-    {
-    }
-
-    void init()
-    {
-        _is_tracking    = false;
-        _last_state     = LV_INDEV_STATE_REL;
-        _screen_height  = 466;
-        _top_threshold  = 20;  // 距离顶部 20 像素内触发
-        _swipe_min_dist = 50;  // 向下滑动至少 50 像素才触发
-    }
-
-    void update()
-    {
-        lv_indev_t* indev = GetHAL().lvTouchpad;
-        if (!indev) {
-            return;
-        }
-
-        lv_indev_state_t state = lv_indev_get_state(indev);
-        lv_point_t curr_point;
-        lv_indev_get_point(indev, &curr_point);
-
-        // 1. 按下瞬间 (Transition: Released -> Pressed)
-        if (state == LV_INDEV_STATE_PR && _last_state == LV_INDEV_STATE_REL) {
-            // 只有在按下那一刻就在顶部，才标记为追踪开始
-            if (curr_point.y <= _top_threshold && curr_point.y >= 0) {
-                _start_point = curr_point;
-                _is_tracking = true;
-            } else {
-                _is_tracking = false;  // 按下位置不对，此次滑动全程忽略
-            }
-        }
-        // 2. 抬起瞬间 (Transition: Pressed -> Released)
-        else if (state == LV_INDEV_STATE_REL && _last_state == LV_INDEV_STATE_PR) {
-            if (_is_tracking) {
-                int delta_y = curr_point.y - _start_point.y;  // 向下滑为正
-                int delta_x = abs(curr_point.x - _start_point.x);
-
-                // 判断标准：向下位移足够，且角度偏垂直
-                if (delta_y > _swipe_min_dist && delta_y > delta_x) {
-                    if (onGesture) {
-                        onGesture();
-                    }
-                }
-                _is_tracking = false;  // 重置追踪状态
-            }
-        }
-
-        _last_state = state;  // 更新状态机
-    }
-
-private:
-    bool _is_tracking;
-    lv_indev_state_t _last_state;  // 记录上一帧状态
-    lv_point_t _start_point;
-    int _screen_height;
-    int _top_threshold;
-    int _swipe_min_dist;
-};
-
-namespace status_bar_view {
+namespace view {
 namespace {
 
 static constexpr uint32_t COLOR_CONNECTED = 0x19C25F;
 static constexpr uint32_t COLOR_DISCONNECTED = 0xD94141;
+
+lv_obj_t* s_panel = nullptr;
+lv_obj_t* s_label_device = nullptr;
+lv_obj_t* s_label_ip = nullptr;
+lv_obj_t* s_label_wifi = nullptr;
+lv_obj_t* s_label_mqtt = nullptr;
+lv_obj_t* s_battery_bar = nullptr;
+lv_obj_t* s_label_charge = nullptr;
+uint32_t s_color_secondary = 0xEDF4FF;
+uint32_t s_color_primary = 0x385179;
 
 bool isWifiConnected()
 {
@@ -140,125 +70,151 @@ const char* deviceName()
     return configured_name;
 }
 
+void setTextColor(lv_obj_t* label, uint32_t color)
+{
+    if (label != nullptr) {
+        lv_obj_set_style_text_color(label, lv_color_hex(color), 0);
+    }
+}
+
+void setLabelText(lv_obj_t* label, const char* text)
+{
+    if (label != nullptr) {
+        lv_label_set_text(label, text == nullptr ? "" : text);
+    }
+}
+
 }  // namespace
 
-class Widget {
-public:
-    virtual ~Widget()     = default;
-    virtual void update() = 0;
-};
+void create_status_bar(uint32_t colorSecondary, uint32_t colorPrimary, bool silent, lv_obj_t* parent)
+{
+    (void)silent;
 
-class StatusInfo : public Widget {
-public:
-    StatusInfo(lv_obj_t* parent, uint32_t colorPrimary)
-    {
-        _device_name = std::make_unique<Label>(parent);
-        _device_name->setText("");
-        _device_name->setTextColor(lv_color_hex(colorPrimary));
-        _device_name->setTextFont(&lv_font_montserrat_16);
-        _device_name->align(LV_ALIGN_TOP_MID, 0, 19);
-
-        _ip_address = std::make_unique<Label>(parent);
-        _ip_address->setText("");
-        _ip_address->setTextColor(lv_color_hex(colorPrimary));
-        _ip_address->setTextFont(&lv_font_montserrat_14);
-        _ip_address->align(LV_ALIGN_TOP_MID, 0, 38);
-
-        _wifi_status = std::make_unique<Label>(parent);
-        _wifi_status->setText("WiFi");
-        _wifi_status->setTextFont(&lv_font_montserrat_14);
-        _wifi_status->align(LV_ALIGN_LEFT_MID, 22, 20);
-
-        _mqtt_status = std::make_unique<Label>(parent);
-        _mqtt_status->setText("MQTT");
-        _mqtt_status->setTextFont(&lv_font_montserrat_14);
-        _mqtt_status->align(LV_ALIGN_LEFT_MID, 78, 20);
-
-        update();
+    if (s_panel != nullptr) {
+        update_status_bar();
+        return;
     }
 
-    void update() override
-    {
-        const bool wifi_connected = isWifiConnected();
-        const bool mqtt_connected = counter_service::isConnected();
+    s_color_secondary = colorSecondary;
+    s_color_primary = colorPrimary;
 
-        _device_name->setText(deviceName());
-        _ip_address->setText(localIpAddress());
-        _wifi_status->setTextColor(lv_color_hex(wifi_connected ? COLOR_CONNECTED : COLOR_DISCONNECTED));
-        _mqtt_status->setTextColor(lv_color_hex(mqtt_connected ? COLOR_CONNECTED : COLOR_DISCONNECTED));
+    if (parent == nullptr) {
+        parent = lv_screen_active();
     }
 
-private:
-    std::unique_ptr<Label> _device_name;
-    std::unique_ptr<Label> _ip_address;
-    std::unique_ptr<Label> _wifi_status;
-    std::unique_ptr<Label> _mqtt_status;
-};
+    s_panel = lv_obj_create(parent);
+    lv_obj_remove_flag(s_panel, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(s_panel, 466, 64);
+    lv_obj_align(s_panel, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_set_style_bg_color(s_panel, lv_color_hex(s_color_secondary), 0);
+    lv_obj_set_style_border_width(s_panel, 0, 0);
+    lv_obj_set_style_radius(s_panel, 0, 0);
+    lv_obj_set_style_pad_all(s_panel, 0, 0);
 
-class BatteryIcon {
-public:
-    BatteryIcon(lv_obj_t* parent, uint32_t colorSecondary, uint32_t colorPrimary)
-    {
-        _color_primary = colorPrimary;
+    s_label_device = lv_label_create(s_panel);
+    lv_obj_set_style_text_font(s_label_device, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(s_label_device, lv_color_hex(s_color_primary), 0);
+    lv_obj_align(s_label_device, LV_ALIGN_TOP_MID, 0, 8);
 
-        _bat_top = std::make_unique<uitk::lvgl_cpp::Container>(parent);
-        _bat_top->setBgColor(lv_color_hex(colorSecondary));
-        _bat_top->setScrollbarMode(LV_SCROLLBAR_MODE_OFF);
-        _bat_top->setBorderWidth(0);
-        _bat_top->setSize(4, 4);
-        _bat_top->setRadius(4);
-        _bat_top->setOutlineWidth(1);
-        _bat_top->setOutlineColor(lv_color_hex(colorPrimary));
+    s_label_ip = lv_label_create(s_panel);
+    lv_obj_set_style_text_font(s_label_ip, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(s_label_ip, lv_color_hex(s_color_primary), 0);
+    lv_obj_align(s_label_ip, LV_ALIGN_TOP_MID, 0, 30);
 
-        _bar = std::make_unique<uitk::lvgl_cpp::Bar>(parent);
-        _bar->setSize(30, 12);
-        _bar->setRadius(4);
-        _bar->setRadius(0, LV_PART_INDICATOR);
-        _bar->setBgColor(lv_color_hex(colorSecondary));
-        _bar->setBgColor(lv_color_hex(colorPrimary), LV_PART_INDICATOR);
-        _bar->setBgOpa(LV_OPA_COVER);
-        _bar->setRange(0, 100);
-        _bar->setValue(0);
-        _bar->setPadding(1, 1, 1, 1);
-        _bar->setOutlineWidth(1);
-        _bar->setOutlineColor(lv_color_hex(colorPrimary));
-        _bar->setRadius(3, LV_PART_INDICATOR);
+    s_label_wifi = lv_label_create(s_panel);
+    lv_label_set_text(s_label_wifi, "WiFi");
+    lv_obj_set_style_text_font(s_label_wifi, &lv_font_montserrat_14, 0);
+    lv_obj_align(s_label_wifi, LV_ALIGN_LEFT_MID, 22, 14);
 
-        _lightning_icon = std::make_unique<uitk::lvgl_cpp::Image>(parent);
-        _lightning_icon->setSrc(&icon_bat_lightning);
-        _lightning_icon->setImageRecolor(lv_color_hex(colorPrimary));
-        _lightning_icon->setImageRecolorOpa(LV_OPA_COVER);
-        _lightning_icon->setHidden(true);
+    s_label_mqtt = lv_label_create(s_panel);
+    lv_label_set_text(s_label_mqtt, "MQTT");
+    lv_obj_set_style_text_font(s_label_mqtt, &lv_font_montserrat_14, 0);
+    lv_obj_align(s_label_mqtt, LV_ALIGN_LEFT_MID, 78, 14);
+
+    s_battery_bar = lv_bar_create(s_panel);
+    lv_obj_set_size(s_battery_bar, 34, 12);
+    lv_obj_align(s_battery_bar, LV_ALIGN_RIGHT_MID, -30, 15);
+    lv_bar_set_range(s_battery_bar, 0, 100);
+    lv_obj_set_style_bg_color(s_battery_bar, lv_color_hex(s_color_secondary), 0);
+    lv_obj_set_style_bg_color(s_battery_bar, lv_color_hex(s_color_primary), LV_PART_INDICATOR);
+    lv_obj_set_style_outline_width(s_battery_bar, 1, 0);
+    lv_obj_set_style_outline_color(s_battery_bar, lv_color_hex(s_color_primary), 0);
+    lv_obj_set_style_radius(s_battery_bar, 4, 0);
+    lv_obj_set_style_radius(s_battery_bar, 3, LV_PART_INDICATOR);
+
+    s_label_charge = lv_label_create(s_panel);
+    lv_label_set_text(s_label_charge, "⚡");
+    lv_obj_set_style_text_font(s_label_charge, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(s_label_charge, lv_color_hex(s_color_primary), 0);
+    lv_obj_align_to(s_label_charge, s_battery_bar, LV_ALIGN_CENTER, 0, -1);
+    lv_obj_add_flag(s_label_charge, LV_OBJ_FLAG_HIDDEN);
+
+    update_status_bar();
+}
+
+void update_status_bar()
+{
+    if (s_panel == nullptr) {
+        return;
     }
 
-    void align(lv_align_t align, int32_t x_ofs, int32_t y_ofs)
-    {
-        _bar->align(align, x_ofs, y_ofs);
-        lv_obj_align_to(_bat_top->get(), _bar->get(), LV_ALIGN_CENTER, 15, 0);
-        lv_obj_align_to(_lightning_icon->get(), _bar->get(), LV_ALIGN_CENTER, 0, 0);
+    const bool wifi_connected = isWifiConnected();
+    const bool mqtt_connected = counter_service::isConnected();
+    const uint8_t battery = GetHAL().getBatteryLevel() > 100 ? 100 : GetHAL().getBatteryLevel();
+    const bool charging = GetHAL().isBatteryCharging();
+    const std::string ip = localIpAddress();
+
+    setLabelText(s_label_device, deviceName());
+    setLabelText(s_label_ip, ip.c_str());
+    setTextColor(s_label_wifi, wifi_connected ? COLOR_CONNECTED : COLOR_DISCONNECTED);
+    setTextColor(s_label_mqtt, mqtt_connected ? COLOR_CONNECTED : COLOR_DISCONNECTED);
+
+    if (s_battery_bar != nullptr) {
+        lv_bar_set_value(s_battery_bar, battery, LV_ANIM_OFF);
+        lv_obj_set_style_bg_color(s_battery_bar,
+                                  lv_color_hex(charging ? COLOR_CONNECTED : s_color_primary),
+                                  LV_PART_INDICATOR);
     }
 
-    void setLevel(uint8_t level)
-    {
-        _bar->setValue(level);
-    }
-
-    void setCharging(bool charging)
-    {
+    if (s_label_charge != nullptr) {
         if (charging) {
-            _bar->setBgColor(lv_color_hex(0x19C25F), LV_PART_INDICATOR);
-            _lightning_icon->setHidden(false);
+            lv_obj_remove_flag(s_label_charge, LV_OBJ_FLAG_HIDDEN);
         } else {
-            _bar->setBgColor(lv_color_hex(_color_primary), LV_PART_INDICATOR);
-            _lightning_icon->setHidden(true);
+            lv_obj_add_flag(s_label_charge, LV_OBJ_FLAG_HIDDEN);
         }
     }
+}
 
-private:
-    std::unique_ptr<Bar> _bar;
-    std::unique_ptr<Container> _bat_top;
-    std::unique_ptr<Image> _lightning_icon;
-    uint32_t _color_primary;
-};
+void show_status_bar()
+{
+    if (s_panel != nullptr) {
+        lv_obj_remove_flag(s_panel, LV_OBJ_FLAG_HIDDEN);
+    }
+}
 
-}  // namespace status_bar_view
+bool is_status_bar_hidden()
+{
+    return s_panel == nullptr || lv_obj_has_flag(s_panel, LV_OBJ_FLAG_HIDDEN);
+}
+
+bool is_status_bar_created()
+{
+    return s_panel != nullptr;
+}
+
+void destroy_status_bar()
+{
+    s_label_device = nullptr;
+    s_label_ip = nullptr;
+    s_label_wifi = nullptr;
+    s_label_mqtt = nullptr;
+    s_battery_bar = nullptr;
+    s_label_charge = nullptr;
+
+    if (s_panel != nullptr) {
+        lv_obj_delete(s_panel);
+        s_panel = nullptr;
+    }
+}
+
+}  // namespace view
