@@ -8,6 +8,7 @@
 #include <hal/hal.h>
 #include <mooncake_log.h>
 #include <smooth_lvgl.hpp>
+#include <esp_sleep.h>
 #include <cstdio>
 #include <ctime>
 #include "../../../components/counter_mqtt/counter_mqtt.h"
@@ -18,14 +19,18 @@ using namespace smooth_ui_toolkit::lvgl_cpp;
 namespace {
 static constexpr uint32_t BATTERY_PUBLISH_INTERVAL_MS = 60000;
 static constexpr uint32_t TIME_REFRESH_INTERVAL_MS = 1000;
-
-// Phase 1 power management: display/backlight sleep only.
-// Do not shut down M5PM1 rails here; IMU, I2C, buttons, and display resume stay powered.
 static constexpr uint32_t DISPLAY_SLEEP_TIMEOUT_MS = 30000;
 static constexpr uint32_t IMU_WAKE_SAMPLE_INTERVAL_MS = 100;
+static constexpr uint64_t PHASE2_LIGHT_SLEEP_INTERVAL_US = IMU_WAKE_SAMPLE_INTERVAL_MS * 1000ULL;
 static constexpr float WAKE_ACCEL_Y_THRESHOLD = 0.30f;
 static constexpr float WAKE_ACCEL_Z_THRESHOLD = 0.35f;
 static constexpr uint8_t WAKE_CONFIRM_SAMPLES = 3;
+
+void enterPhase2LightSleepTick()
+{
+    esp_sleep_enable_timer_wakeup(PHASE2_LIGHT_SLEEP_INTERVAL_US);
+    (void)esp_light_sleep_start();
+}
 }
 
 AppCounter::AppCounter()
@@ -81,7 +86,6 @@ void AppCounter::onRunning()
         const bool touch_wake = hasTouchInput();
         const bool orientation_wake = updateOrientationWake();
 
-        // Keep MQTT state fresh while the display is dark, but avoid refreshing hidden UI.
         syncLatestMqttValue(false);
         publishBatteryIfNeeded();
 
@@ -92,7 +96,10 @@ void AppCounter::onRunning()
             refreshValue();
             refreshStatus();
             refreshDiagnostics();
+            return;
         }
+
+        enterPhase2LightSleepTick();
         return;
     }
 
@@ -220,7 +227,7 @@ void AppCounter::enterDisplaySleep()
         _saved_brightness = 80;
     }
 
-    mclog::tagInfo(getAppInfo().name, "enter phase 1 display sleep");
+    mclog::tagInfo(getAppInfo().name, "enter phase 2 display/light sleep");
     GetHAL().setBackLightBrightness(0);
 }
 
@@ -230,7 +237,7 @@ void AppCounter::wakeFromDisplaySleep()
         return;
     }
 
-    mclog::tagInfo(getAppInfo().name, "wake from phase 1 display sleep");
+    mclog::tagInfo(getAppInfo().name, "wake from phase 2 display/light sleep");
     _sleeping = false;
     _wake_sample_count = 0;
     GetHAL().setBackLightBrightness(_saved_brightness > 0 ? _saved_brightness : 80);
@@ -248,8 +255,6 @@ bool AppCounter::updateOrientationWake()
     GetHAL().updateImuData();
     const auto& imu = GetHAL().getImuData();
 
-    // Hanging upside down from lanyard: Y ~= +1.0, Z ~= 0.0.
-    // Handheld use: Y ~= -0.4, Z ~= +0.9.
     if (imu.accelY < WAKE_ACCEL_Y_THRESHOLD && imu.accelZ > WAKE_ACCEL_Z_THRESHOLD) {
         if (_wake_sample_count < WAKE_CONFIRM_SAMPLES) {
             ++_wake_sample_count;
