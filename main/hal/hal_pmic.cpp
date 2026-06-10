@@ -100,8 +100,9 @@ void Hal::pmic_init()
     _pm1->setI2cSleepTime(0);
     _pm1->setI2cSleepTime(0);
 
-    // set button delay click 1s
-    _pm1->btnSetConfig(M5PM1_BTN_TYPE_CLICK, M5PM1_BTN_CLICK_DELAY_1000MS);
+    // Configure PMIC power-button timing for double-click power-off.
+    // A single-click configuration can treat the first click of a double-click as reset.
+    _pm1->btnSetConfig(M5PM1_BTN_TYPE_DOUBLE, M5PM1_BTN_DOUBLE_CLICK_DELAY_500MS);
     // disable WDT, default is open
     _pm1->wdtSet(0);
     //  hold LDO power close when power off, keep power for RTC
@@ -122,9 +123,10 @@ void Hal::pmic_init()
     _pm1->gpioSetMode(PMG2_CHG_STAT, M5PM1_GPIO_MODE_INPUT);
     _pm1->gpioSetPull(PMG2_CHG_STAT, M5PM1_GPIO_PULL_NONE);
 
-    // Match the upstream StopWatch PMIC behavior: prevent accidental single-click
-    // reset while leaving the PMIC's built-in double-click power-off path intact.
+    // Prevent accidental single-click reset while leaving the PMIC's built-in
+    // double-click power-off path intact.
     _pm1->setSingleResetDisable(true);
+    _pm1->setDoubleOffDisable(false);
 
     uint16_t battery_mv = 0;
     if (_pm1->readVbat(&battery_mv) == M5PM1_OK) {
