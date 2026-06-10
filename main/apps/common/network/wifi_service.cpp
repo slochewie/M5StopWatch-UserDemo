@@ -17,6 +17,7 @@ namespace {
 static constexpr const char* TAG = "WifiService";
 static constexpr int WIFI_CONNECTED_BIT = BIT0;
 static constexpr uint32_t WIFI_CONNECT_WAIT_MS = 15000;
+static constexpr int DHCP_STALL_RECONNECT_THRESHOLD = 2;
 
 Config s_config;
 EventGroupHandle_t s_event_group = nullptr;
@@ -26,7 +27,9 @@ bool s_handlers_registered = false;
 bool s_initialized = false;
 bool s_started = false;
 bool s_connected = false;
+bool s_associated = false;
 int s_retry_count = 0;
+int s_dhcp_stall_count = 0;
 
 bool ensureNetworkStackReady()
 {
@@ -67,19 +70,38 @@ void eventHandler(void* arg, esp_event_base_t event_base, int32_t event_id, void
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         s_started = true;
         s_connected = false;
+        s_associated = false;
         ESP_LOGI(TAG, "Wi-Fi STA started");
         esp_wifi_connect();
         return;
     }
 
-    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_CONNECTED) {
+        auto* event = static_cast<wifi_event_sta_connected_t*>(event_data);
+        s_associated = true;
         s_connected = false;
+        ESP_LOGI(TAG,
+                 "Wi-Fi associated: ssid=%s channel=%u bssid=%02x:%02x:%02x:%02x:%02x:%02x",
+                 event->ssid,
+                 static_cast<unsigned>(event->channel),
+                 event->bssid[0], event->bssid[1], event->bssid[2],
+                 event->bssid[3], event->bssid[4], event->bssid[5]);
+        return;
+    }
+
+    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        auto* event = static_cast<wifi_event_sta_disconnected_t*>(event_data);
+        s_connected = false;
+        s_associated = false;
         if (s_event_group != nullptr) {
             xEventGroupClearBits(s_event_group, WIFI_CONNECTED_BIT);
         }
 
         ++s_retry_count;
-        ESP_LOGW(TAG, "Wi-Fi disconnected, reconnect attempt %d", s_retry_count);
+        ESP_LOGW(TAG,
+                 "Wi-Fi disconnected, reconnect attempt %d, reason=%d",
+                 s_retry_count,
+                 event == nullptr ? -1 : static_cast<int>(event->reason));
         const esp_err_t err = esp_wifi_connect();
         if (err != ESP_OK && err != ESP_ERR_WIFI_CONN) {
             ESP_LOGW(TAG, "esp_wifi_connect failed: %s", esp_err_to_name(err));
@@ -90,11 +112,22 @@ void eventHandler(void* arg, esp_event_base_t event_base, int32_t event_id, void
     if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         auto* event = static_cast<ip_event_got_ip_t*>(event_data);
         s_retry_count = 0;
+        s_dhcp_stall_count = 0;
+        s_associated = true;
         s_connected = true;
         ESP_LOGI(TAG, "Wi-Fi got IP: " IPSTR, IP2STR(&event->ip_info.ip));
         if (s_event_group != nullptr) {
             xEventGroupSetBits(s_event_group, WIFI_CONNECTED_BIT);
         }
+        return;
+    }
+
+    if (event_base == IP_EVENT && event_id == IP_EVENT_STA_LOST_IP) {
+        s_connected = false;
+        if (s_event_group != nullptr) {
+            xEventGroupClearBits(s_event_group, WIFI_CONNECTED_BIT);
+        }
+        ESP_LOGW(TAG, "Wi-Fi lost IP");
         return;
     }
 }
@@ -135,13 +168,13 @@ bool ensureInitialized()
 
     if (!s_handlers_registered) {
         esp_event_handler_instance_t wifi_any_id = nullptr;
-        esp_event_handler_instance_t got_ip = nullptr;
+        esp_event_handler_instance_t ip_any_id = nullptr;
         err = esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &eventHandler, nullptr, &wifi_any_id);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "register WIFI_EVENT handler failed: %s", esp_err_to_name(err));
             return false;
         }
-        err = esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &eventHandler, nullptr, &got_ip);
+        err = esp_event_handler_instance_register(IP_EVENT, ESP_EVENT_ANY_ID, &eventHandler, nullptr, &ip_any_id);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "register IP_EVENT handler failed: %s", esp_err_to_name(err));
             return false;
@@ -190,6 +223,22 @@ bool applyConfig()
     return true;
 }
 
+void reconnectAfterDhcpStall()
+{
+    ++s_dhcp_stall_count;
+    ESP_LOGW(TAG,
+             "Wi-Fi associated but DHCP did not complete, stall %d/%d",
+             s_dhcp_stall_count,
+             DHCP_STALL_RECONNECT_THRESHOLD);
+
+    if (s_dhcp_stall_count >= DHCP_STALL_RECONNECT_THRESHOLD) {
+        s_dhcp_stall_count = 0;
+        ESP_LOGW(TAG, "Restarting Wi-Fi association after DHCP stall");
+        esp_wifi_disconnect();
+        esp_wifi_connect();
+    }
+}
+
 }  // namespace
 
 bool begin(const Config& config)
@@ -230,6 +279,10 @@ bool begin(const Config& config)
         return true;
     }
 
+    if (s_associated && !s_connected) {
+        reconnectAfterDhcpStall();
+    }
+
     ESP_LOGW(TAG, "Wi-Fi not connected yet; background reconnect will continue");
     return false;
 }
@@ -252,6 +305,11 @@ void recoverConnection()
     }
 
     if (!s_connected) {
+        if (s_associated) {
+            reconnectAfterDhcpStall();
+            return;
+        }
+
         ESP_LOGI(TAG, "Wi-Fi recovery requested");
         const esp_err_t err = esp_wifi_connect();
         if (err != ESP_OK && err != ESP_ERR_WIFI_CONN) {
@@ -279,6 +337,9 @@ const char* statusText()
 {
     if (!s_initialized || !s_started) {
         return "WiFi --";
+    }
+    if (s_associated && !s_connected) {
+        return "DHCP ...";
     }
     return s_connected ? "WiFi OK" : "WiFi ...";
 }
