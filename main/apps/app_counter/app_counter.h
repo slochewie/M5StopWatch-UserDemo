@@ -36,13 +36,23 @@ private:
     uint32_t _last_status_update = 0;
     uint32_t _last_time_update = 0;
     uint32_t _last_battery_publish = 0;
+    uint32_t _last_activity_ms = 0;
+    uint32_t _last_wake_sample_ms = 0;
+    int _saved_brightness = 80;
     uint8_t _last_published_battery = 255;
+    uint8_t _wake_sample_count = 0;
     bool _reset_requested = false;
+    bool _sleeping = false;
 
     bool syncLatestMqttValue(bool refresh_ui);
     void increment();
     void decrement();
     void reset();
+    void markActivity();
+    void enterDisplaySleep();
+    void wakeFromDisplaySleep();
+    bool updateOrientationWake();
+    bool hasTouchInput();
     void refreshTime(bool force = false);
     void refreshValue();
     void refreshStatus();
