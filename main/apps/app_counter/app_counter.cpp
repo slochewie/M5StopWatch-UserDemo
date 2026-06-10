@@ -241,6 +241,7 @@ void AppCounter::wakeFromDisplaySleep()
     _sleeping = false;
     _wake_sample_count = 0;
     GetHAL().setBackLightBrightness(_saved_brightness > 0 ? _saved_brightness : 80);
+    counter_mqtt::recoverConnection();
     markActivity();
 }
 
