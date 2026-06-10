@@ -28,6 +28,10 @@
 using namespace smooth_ui_toolkit;
 using namespace smooth_ui_toolkit::lvgl_cpp;
 
+/**
+ * @brief
+ *
+ */
 class StatuBarGesture {
 public:
     std::function<void(void)> onGesture;
@@ -41,8 +45,8 @@ public:
         _is_tracking    = false;
         _last_state     = LV_INDEV_STATE_REL;
         _screen_height  = 466;
-        _top_threshold  = 20;
-        _swipe_min_dist = 50;
+        _top_threshold  = 20;  // 距离顶部 20 像素内触发
+        _swipe_min_dist = 50;  // 向下滑动至少 50 像素才触发
     }
 
     void update()
@@ -56,32 +60,38 @@ public:
         lv_point_t curr_point;
         lv_indev_get_point(indev, &curr_point);
 
+        // 1. 按下瞬间 (Transition: Released -> Pressed)
         if (state == LV_INDEV_STATE_PR && _last_state == LV_INDEV_STATE_REL) {
+            // 只有在按下那一刻就在顶部，才标记为追踪开始
             if (curr_point.y <= _top_threshold && curr_point.y >= 0) {
                 _start_point = curr_point;
                 _is_tracking = true;
             } else {
-                _is_tracking = false;
+                _is_tracking = false;  // 按下位置不对，此次滑动全程忽略
             }
-        } else if (state == LV_INDEV_STATE_REL && _last_state == LV_INDEV_STATE_PR) {
+        }
+        // 2. 抬起瞬间 (Transition: Pressed -> Released)
+        else if (state == LV_INDEV_STATE_REL && _last_state == LV_INDEV_STATE_PR) {
             if (_is_tracking) {
-                int delta_y = curr_point.y - _start_point.y;
+                int delta_y = curr_point.y - _start_point.y;  // 向下滑为正
                 int delta_x = abs(curr_point.x - _start_point.x);
+
+                // 判断标准：向下位移足够，且角度偏垂直
                 if (delta_y > _swipe_min_dist && delta_y > delta_x) {
                     if (onGesture) {
                         onGesture();
                     }
                 }
-                _is_tracking = false;
+                _is_tracking = false;  // 重置追踪状态
             }
         }
 
-        _last_state = state;
+        _last_state = state;  // 更新状态机
     }
 
 private:
     bool _is_tracking;
-    lv_indev_state_t _last_state;
+    lv_indev_state_t _last_state;  // 记录上一帧状态
     lv_point_t _start_point;
     int _screen_height;
     int _top_threshold;
@@ -91,8 +101,21 @@ private:
 namespace status_bar_view {
 namespace {
 
+static constexpr uint32_t COLOR_CONNECTED = 0x19C25F;
+static constexpr uint32_t COLOR_DISCONNECTED = 0xD94141;
+
+bool isWifiConnected()
+{
+    wifi_ap_record_t ap_info = {};
+    return esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK;
+}
+
 std::string localIpAddress()
 {
+    if (!isWifiConnected()) {
+        return "IP --";
+    }
+
     esp_netif_t* netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
     if (netif == nullptr) {
         return "IP --";
@@ -106,15 +129,6 @@ std::string localIpAddress()
     char buffer[24] = {};
     std::snprintf(buffer, sizeof(buffer), IPSTR, IP2STR(&ip_info.ip));
     return buffer;
-}
-
-int wifiRssi()
-{
-    wifi_ap_record_t ap_info = {};
-    if (esp_wifi_sta_get_ap_info(&ap_info) != ESP_OK) {
-        return 0;
-    }
-    return static_cast<int>(ap_info.rssi);
 }
 
 const char* deviceName()
@@ -138,63 +152,169 @@ class StatusInfo : public Widget {
 public:
     StatusInfo(lv_obj_t* parent, uint32_t colorPrimary)
     {
-        _label = std::make_unique<Label>(parent);
-        _label->setText("");
-        _label->setTextColor(lv_color_hex(colorPrimary));
-        _label->setTextFont(&lv_font_montserrat_16);
-        _label->align(LV_ALIGN_TOP_MID, 0, 12);
-        lv_obj_set_style_text_align(_label->get(), LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_width(_label->get(), 280);
+        _device_name = std::make_unique<Label>(parent);
+        _device_name->setText("");
+        _device_name->setTextColor(lv_color_hex(colorPrimary));
+        _device_name->setTextFont(&lv_font_montserrat_16);
+        _device_name->align(LV_ALIGN_TOP_MID, 0, 19);
+
+        _ip_address = std::make_unique<Label>(parent);
+        _ip_address->setText("");
+        _ip_address->setTextColor(lv_color_hex(colorPrimary));
+        _ip_address->setTextFont(&lv_font_montserrat_14);
+        _ip_address->align(LV_ALIGN_TOP_MID, 0, 38);
+
+        _wifi_status = std::make_unique<Label>(parent);
+        _wifi_status->setText("WiFi");
+        _wifi_status->setTextFont(&lv_font_montserrat_14);
+        _wifi_status->align(LV_ALIGN_LEFT_MID, 22, 20);
+
+        _mqtt_status = std::make_unique<Label>(parent);
+        _mqtt_status->setText("MQTT");
+        _mqtt_status->setTextFont(&lv_font_montserrat_14);
+        _mqtt_status->align(LV_ALIGN_LEFT_MID, 78, 20);
+
         update();
     }
 
     void update() override
     {
-        const std::string ip = localIpAddress();
-        const int rssi = wifiRssi();
-        const uint8_t raw_level = GetHAL().getBatteryLevel();
-        const uint8_t level = raw_level > 100 ? 100 : raw_level;
-        const char* mqtt = counter_service::isConnected() ? "MQTT" : "MQTT --";
+        const bool wifi_connected = isWifiConnected();
+        const bool mqtt_connected = counter_service::isConnected();
 
-        char buffer[160] = {};
-        std::snprintf(buffer,
-                      sizeof(buffer),
-                      "%s\n%s\n\n📶%d  ●%s     %u%% 🔋",
-                      deviceName(),
-                      ip.c_str(),
-                      rssi,
-                      mqtt,
-                      static_cast<unsigned>(level));
-        _label->setText(buffer);
+        _device_name->setText(deviceName());
+        _ip_address->setText(localIpAddress());
+        _wifi_status->setTextColor(lv_color_hex(wifi_connected ? COLOR_CONNECTED : COLOR_DISCONNECTED));
+        _mqtt_status->setTextColor(lv_color_hex(mqtt_connected ? COLOR_CONNECTED : COLOR_DISCONNECTED));
     }
 
 private:
-    std::unique_ptr<Label> _label;
+    std::unique_ptr<Label> _device_name;
+    std::unique_ptr<Label> _ip_address;
+    std::unique_ptr<Label> _wifi_status;
+    std::unique_ptr<Label> _mqtt_status;
+};
+
+class BatteryIcon {
+public:
+    BatteryIcon(lv_obj_t* parent, uint32_t colorSecondary, uint32_t colorPrimary)
+    {
+        _color_primary = colorPrimary;
+
+        _bat_top = std::make_unique<uitk::lvgl_cpp::Container>(parent);
+        _bat_top->setBgColor(lv_color_hex(colorSecondary));
+        _bat_top->setScrollbarMode(LV_SCROLLBAR_MODE_OFF);
+        _bat_top->setBorderWidth(0);
+        _bat_top->setSize(4, 4);
+        _bat_top->setRadius(4);
+        _bat_top->setOutlineWidth(1);
+        _bat_top->setOutlineColor(lv_color_hex(colorPrimary));
+
+        _bar = std::make_unique<uitk::lvgl_cpp::Bar>(parent);
+        _bar->setSize(30, 12);
+        _bar->setRadius(4);
+        _bar->setRadius(0, LV_PART_INDICATOR);
+        _bar->setBgColor(lv_color_hex(colorSecondary));
+        _bar->setBgColor(lv_color_hex(colorPrimary), LV_PART_INDICATOR);
+        _bar->setBgOpa(LV_OPA_COVER);
+        _bar->setRange(0, 100);
+        _bar->setValue(0);
+        _bar->setPadding(1, 1, 1, 1);
+        _bar->setOutlineWidth(1);
+        _bar->setOutlineColor(lv_color_hex(colorPrimary));
+        _bar->setRadius(3, LV_PART_INDICATOR);
+
+        _lightning_icon = std::make_unique<uitk::lvgl_cpp::Image>(parent);
+        _lightning_icon->setSrc(&icon_bat_lightning);
+        _lightning_icon->setImageRecolor(lv_color_hex(colorPrimary));
+        _lightning_icon->setImageRecolorOpa(LV_OPA_COVER);
+        _lightning_icon->setHidden(true);
+    }
+
+    void align(lv_align_t align, int32_t x_ofs, int32_t y_ofs)
+    {
+        _bar->align(align, x_ofs, y_ofs);
+        lv_obj_align_to(_bat_top->get(), _bar->get(), LV_ALIGN_CENTER, 15, 0);
+        lv_obj_align_to(_lightning_icon->get(), _bar->get(), LV_ALIGN_CENTER, 0, 0);
+    }
+
+    void setLevel(uint8_t level)
+    {
+        _bar->setValue(level);
+    }
+
+    void setCharging(bool charging)
+    {
+        if (charging) {
+            _bar->setBgColor(lv_color_hex(0x19C25F), LV_PART_INDICATOR);
+            _lightning_icon->setHidden(false);
+        } else {
+            _bar->setBgColor(lv_color_hex(_color_primary), LV_PART_INDICATOR);
+            _lightning_icon->setHidden(true);
+        }
+    }
+
+private:
+    std::unique_ptr<Bar> _bar;
+    std::unique_ptr<Container> _bat_top;
+    std::unique_ptr<Image> _lightning_icon;
+
+    uint32_t _color_primary = 0;
+};
+
+class Battery : public Widget {
+public:
+    Battery(lv_obj_t* parent, uint32_t colorSecondary, uint32_t colorPrimary)
+    {
+        _label_level = std::make_unique<Label>(parent);
+        _label_level->setText("");
+        _label_level->setTextColor(lv_color_hex(colorPrimary));
+        _label_level->setTextFont(&lv_font_montserrat_16);
+        _label_level->align(LV_ALIGN_RIGHT_MID, -78, 20);
+
+        _battery_icon = std::make_unique<BatteryIcon>(parent, colorSecondary, colorPrimary);
+        _battery_icon->align(LV_ALIGN_RIGHT_MID, -43, 20);
+
+        update();
+    }
+
+    void update() override
+    {
+        auto level = GetHAL().getBatteryLevel();
+        _label_level->setText(fmt::format("{}%", level));
+        _battery_icon->setLevel(level);
+        _battery_icon->setCharging(GetHAL().isBatteryCharging());
+    }
+
+private:
+    std::unique_ptr<Label> _label_level;
+    std::unique_ptr<BatteryIcon> _battery_icon;
 };
 
 class StatusBarView {
 public:
     StatusBarView(lv_obj_t* parent, uint32_t colorSecondary, uint32_t colorPrimary)
     {
-        (void)parent;
         _panel = std::make_unique<uitk::lvgl_cpp::Container>(lv_screen_active());
         _panel->setBgColor(lv_color_hex(colorSecondary));
         _panel->setScrollbarMode(LV_SCROLLBAR_MODE_OFF);
         _panel->align(LV_ALIGN_TOP_MID, 0, 0);
         _panel->setBorderWidth(0);
-        _panel->setSize(300, 122);
-        _panel->setRadius(28);
+        _panel->setSize(210, 96);
+        _panel->setRadius(27);
         _panel->setPadding(0, 0, 0, 0);
         _panel->removeFlag(LV_OBJ_FLAG_SCROLLABLE);
         _panel->onClick().connect([this]() { hide(); });
 
         _widgets.push_back(std::make_unique<StatusInfo>(_panel->get(), colorPrimary));
+        _widgets.push_back(std::make_unique<Battery>(_panel->get(), colorSecondary, colorPrimary));
 
         _panel->setPos(0, _pos_y_hide);
         _panel->setHidden(true);
         _is_hidden                                 = true;
         _pos_y_anim.springOptions().bounce         = 0.1;
         _pos_y_anim.springOptions().visualDuration = 0.3;
+        // _pos_y_anim.easingOptions().duration = 0.3;
         _pos_y_anim.teleport(_pos_y_hide);
     }
 
@@ -239,8 +359,8 @@ public:
     }
 
 private:
-    const int _pos_y_show = -8;
-    const int _pos_y_hide = -135;
+    const int _pos_y_show = -17;
+    const int _pos_y_hide = -116;
 
     std::unique_ptr<Container> _panel;
     std::vector<std::unique_ptr<Widget>> _widgets;
@@ -252,6 +372,10 @@ private:
 
 }  // namespace status_bar_view
 
+/**
+ * @brief
+ *
+ */
 class StatusBar {
 public:
     void init(lv_obj_t* parent, uint32_t colorSecondary, uint32_t colorPrimary, bool silent)
@@ -309,6 +433,10 @@ private:
     }
 };
 
+/**
+ * @brief
+ *
+ */
 namespace view {
 
 static std::unique_ptr<StatusBar> _status_bar;
