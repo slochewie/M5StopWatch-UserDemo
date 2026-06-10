@@ -3,10 +3,10 @@
  *
  * SPDX-License-Identifier: MIT
  */
-#include <M5IOE1.h>
 #include "hal.h"
 #include <mooncake_log.h>
 #include <driver/gpio.h>
+#include <M5IOE1.h>
 #include <memory>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -14,14 +14,11 @@
 
 static const std::string_view _tag = "HAL-IOE";
 static std::unique_ptr<M5IOE1> _ioe;
-static m5::I2C_Class _ioe_i2c;
 
 namespace {
 
 constexpr uint8_t _ioe_addr_primary   = 0x4F;
 constexpr uint8_t _ioe_addr_secondary = 0x6F;
-constexpr int _ioe_i2c_sda            = 47;
-constexpr int _ioe_i2c_scl            = 48;
 int _l3b_en_retry_count               = 0;
 
 }  // namespace
@@ -43,22 +40,14 @@ void Hal::ioe_init()
 {
     mclog::tagInfo(_tag, "init");
 
-    _ioe = std::make_unique<M5IOE1>();
-
-    if (!_ioe_i2c.isEnabled()) {
-        if (!_ioe_i2c.begin(I2C_NUM_0, _ioe_i2c_sda, _ioe_i2c_scl)) {
-            mclog::tagInfo(_tag, "init failed: M5Unified I2C begin failed");
-            _ioe.reset();
-            return;
-        }
-    }
-
+    _ioe                  = std::make_unique<M5IOE1>();
+    auto* bus             = i2c_bus_get_internal_bus_handle(_i2c_bus);
     uint8_t selected_addr = _ioe_addr_primary;
-    auto ret              = _ioe->begin(&_ioe_i2c, _ioe_addr_primary, M5IOE1_I2C_FREQ_400K);
+    auto ret              = _ioe->begin(bus, _ioe_addr_primary, M5IOE1_I2C_FREQ_400K);
 
     if (ret != M5IOE1_OK) {
         selected_addr = _ioe_addr_secondary;
-        ret           = _ioe->begin(&_ioe_i2c, _ioe_addr_secondary, M5IOE1_I2C_FREQ_400K);
+        ret           = _ioe->begin(bus, _ioe_addr_secondary, M5IOE1_I2C_FREQ_400K);
     }
 
     if (ret != M5IOE1_OK) {
