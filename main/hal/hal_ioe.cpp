@@ -14,6 +14,7 @@
 
 static const std::string_view _tag = "HAL-IOE";
 static std::unique_ptr<M5IOE1> _ioe;
+static m5::I2C_Class _ioe_i2c;
 
 namespace {
 
@@ -44,8 +45,8 @@ void Hal::ioe_init()
 
     _ioe = std::make_unique<M5IOE1>();
 
-    if (!m5::In_I2C.isEnabled()) {
-        if (!m5::In_I2C.begin(I2C_NUM_0, _ioe_i2c_sda, _ioe_i2c_scl)) {
+    if (!_ioe_i2c.isEnabled()) {
+        if (!_ioe_i2c.begin(I2C_NUM_0, _ioe_i2c_sda, _ioe_i2c_scl)) {
             mclog::tagInfo(_tag, "init failed: M5Unified I2C begin failed");
             _ioe.reset();
             return;
@@ -53,11 +54,11 @@ void Hal::ioe_init()
     }
 
     uint8_t selected_addr = _ioe_addr_primary;
-    auto ret              = _ioe->begin(&m5::In_I2C, _ioe_addr_primary, M5IOE1_I2C_FREQ_400K);
+    auto ret              = _ioe->begin(&_ioe_i2c, _ioe_addr_primary, M5IOE1_I2C_FREQ_400K);
 
     if (ret != M5IOE1_OK) {
         selected_addr = _ioe_addr_secondary;
-        ret           = _ioe->begin(&m5::In_I2C, _ioe_addr_secondary, M5IOE1_I2C_FREQ_400K);
+        ret           = _ioe->begin(&_ioe_i2c, _ioe_addr_secondary, M5IOE1_I2C_FREQ_400K);
     }
 
     if (ret != M5IOE1_OK) {
