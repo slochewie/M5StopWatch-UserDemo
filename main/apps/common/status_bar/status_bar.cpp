@@ -155,24 +155,40 @@ public:
         _device_name = std::make_unique<Label>(parent);
         _device_name->setText("");
         _device_name->setTextColor(lv_color_hex(colorPrimary));
-        _device_name->setTextFont(&lv_font_montserrat_16);
-        _device_name->align(LV_ALIGN_TOP_MID, 0, 19);
+        _device_name->setTextFont(&lv_font_montserrat_20);
+        _device_name->align(LV_ALIGN_TOP_MID, 0, 18);
 
         _ip_address = std::make_unique<Label>(parent);
         _ip_address->setText("");
         _ip_address->setTextColor(lv_color_hex(colorPrimary));
-        _ip_address->setTextFont(&lv_font_montserrat_14);
-        _ip_address->align(LV_ALIGN_TOP_MID, 0, 38);
+        _ip_address->setTextFont(&lv_font_montserrat_18);
+        _ip_address->align(LV_ALIGN_TOP_MID, 0, 46);
+
+        _wifi_dot = std::make_unique<Container>(parent);
+        _wifi_dot->setScrollbarMode(LV_SCROLLBAR_MODE_OFF);
+        _wifi_dot->setBorderWidth(0);
+        _wifi_dot->setSize(10, 10);
+        _wifi_dot->setRadius(5);
+        _wifi_dot->align(LV_ALIGN_LEFT_MID, 27, 26);
 
         _wifi_status = std::make_unique<Label>(parent);
         _wifi_status->setText("WiFi");
-        _wifi_status->setTextFont(&lv_font_montserrat_14);
-        _wifi_status->align(LV_ALIGN_LEFT_MID, 22, 20);
+        _wifi_status->setTextColor(lv_color_hex(colorPrimary));
+        _wifi_status->setTextFont(&lv_font_montserrat_18);
+        _wifi_status->align(LV_ALIGN_LEFT_MID, 42, 26);
+
+        _mqtt_dot = std::make_unique<Container>(parent);
+        _mqtt_dot->setScrollbarMode(LV_SCROLLBAR_MODE_OFF);
+        _mqtt_dot->setBorderWidth(0);
+        _mqtt_dot->setSize(10, 10);
+        _mqtt_dot->setRadius(5);
+        _mqtt_dot->align(LV_ALIGN_LEFT_MID, 112, 26);
 
         _mqtt_status = std::make_unique<Label>(parent);
         _mqtt_status->setText("MQTT");
-        _mqtt_status->setTextFont(&lv_font_montserrat_14);
-        _mqtt_status->align(LV_ALIGN_LEFT_MID, 78, 20);
+        _mqtt_status->setTextColor(lv_color_hex(colorPrimary));
+        _mqtt_status->setTextFont(&lv_font_montserrat_18);
+        _mqtt_status->align(LV_ALIGN_LEFT_MID, 127, 26);
 
         update();
     }
@@ -184,14 +200,16 @@ public:
 
         _device_name->setText(deviceName());
         _ip_address->setText(localIpAddress());
-        _wifi_status->setTextColor(lv_color_hex(wifi_connected ? COLOR_CONNECTED : COLOR_DISCONNECTED));
-        _mqtt_status->setTextColor(lv_color_hex(mqtt_connected ? COLOR_CONNECTED : COLOR_DISCONNECTED));
+        _wifi_dot->setBgColor(lv_color_hex(wifi_connected ? COLOR_CONNECTED : COLOR_DISCONNECTED));
+        _mqtt_dot->setBgColor(lv_color_hex(mqtt_connected ? COLOR_CONNECTED : COLOR_DISCONNECTED));
     }
 
 private:
     std::unique_ptr<Label> _device_name;
     std::unique_ptr<Label> _ip_address;
+    std::unique_ptr<Container> _wifi_dot;
     std::unique_ptr<Label> _wifi_status;
+    std::unique_ptr<Container> _mqtt_dot;
     std::unique_ptr<Label> _mqtt_status;
 };
 
@@ -269,11 +287,11 @@ public:
         _label_level = std::make_unique<Label>(parent);
         _label_level->setText("");
         _label_level->setTextColor(lv_color_hex(colorPrimary));
-        _label_level->setTextFont(&lv_font_montserrat_16);
-        _label_level->align(LV_ALIGN_RIGHT_MID, -78, 20);
+        _label_level->setTextFont(&lv_font_montserrat_20);
+        _label_level->align(LV_ALIGN_RIGHT_MID, -84, 55);
 
         _battery_icon = std::make_unique<BatteryIcon>(parent, colorSecondary, colorPrimary);
-        _battery_icon->align(LV_ALIGN_RIGHT_MID, -43, 20);
+        _battery_icon->align(LV_ALIGN_RIGHT_MID, -43, 55);
 
         update();
     }
@@ -300,7 +318,7 @@ public:
         _panel->setScrollbarMode(LV_SCROLLBAR_MODE_OFF);
         _panel->align(LV_ALIGN_TOP_MID, 0, 0);
         _panel->setBorderWidth(0);
-        _panel->setSize(210, 96);
+        _panel->setSize(220, 140);
         _panel->setRadius(27);
         _panel->setPadding(0, 0, 0, 0);
         _panel->removeFlag(LV_OBJ_FLAG_SCROLLABLE);
@@ -360,7 +378,7 @@ public:
 
 private:
     const int _pos_y_show = -17;
-    const int _pos_y_hide = -116;
+    const int _pos_y_hide = -160;
 
     std::unique_ptr<Container> _panel;
     std::vector<std::unique_ptr<Widget>> _widgets;
