@@ -101,8 +101,12 @@ private:
 namespace status_bar_view {
 namespace {
 
-static constexpr uint32_t COLOR_CONNECTED = 0x19C25F;
+static constexpr uint32_t COLOR_CONNECTED    = 0x19C25F;
 static constexpr uint32_t COLOR_DISCONNECTED = 0xD94141;
+static constexpr uint32_t COLOR_PANEL_BG     = 0x000000;
+static constexpr uint32_t COLOR_TEXT         = 0xFFFFFF;
+static constexpr uint32_t COLOR_TEXT_DIM     = 0xB6C0D4;
+static constexpr uint32_t COLOR_OUTLINE      = 0xFFFFFF;
 
 bool isWifiConnected()
 {
@@ -150,45 +154,45 @@ public:
 
 class StatusInfo : public Widget {
 public:
-    StatusInfo(lv_obj_t* parent, uint32_t colorPrimary)
+    StatusInfo(lv_obj_t* parent)
     {
         _device_name = std::make_unique<Label>(parent);
         _device_name->setText("");
-        _device_name->setTextColor(lv_color_hex(colorPrimary));
+        _device_name->setTextColor(lv_color_hex(COLOR_TEXT));
         _device_name->setTextFont(&lv_font_montserrat_20);
-        _device_name->align(LV_ALIGN_TOP_MID, 0, 18);
+        _device_name->align(LV_ALIGN_TOP_MID, 0, 62);
 
         _ip_address = std::make_unique<Label>(parent);
         _ip_address->setText("");
-        _ip_address->setTextColor(lv_color_hex(colorPrimary));
-        _ip_address->setTextFont(&lv_font_montserrat_18);
-        _ip_address->align(LV_ALIGN_TOP_MID, 0, 46);
+        _ip_address->setTextColor(lv_color_hex(COLOR_TEXT_DIM));
+        _ip_address->setTextFont(&lv_font_montserrat_20);
+        _ip_address->align(LV_ALIGN_TOP_MID, 0, 90);
 
         _wifi_dot = std::make_unique<Container>(parent);
         _wifi_dot->setScrollbarMode(LV_SCROLLBAR_MODE_OFF);
         _wifi_dot->setBorderWidth(0);
-        _wifi_dot->setSize(10, 10);
-        _wifi_dot->setRadius(5);
-        _wifi_dot->align(LV_ALIGN_LEFT_MID, 27, 26);
+        _wifi_dot->setSize(12, 12);
+        _wifi_dot->setRadius(6);
+        _wifi_dot->align(LV_ALIGN_LEFT_MID, 23, 33);
 
         _wifi_status = std::make_unique<Label>(parent);
         _wifi_status->setText("WiFi");
-        _wifi_status->setTextColor(lv_color_hex(colorPrimary));
-        _wifi_status->setTextFont(&lv_font_montserrat_18);
-        _wifi_status->align(LV_ALIGN_LEFT_MID, 42, 26);
+        _wifi_status->setTextColor(lv_color_hex(COLOR_TEXT));
+        _wifi_status->setTextFont(&lv_font_montserrat_20);
+        _wifi_status->align(LV_ALIGN_LEFT_MID, 42, 31);
 
         _mqtt_dot = std::make_unique<Container>(parent);
         _mqtt_dot->setScrollbarMode(LV_SCROLLBAR_MODE_OFF);
         _mqtt_dot->setBorderWidth(0);
-        _mqtt_dot->setSize(10, 10);
-        _mqtt_dot->setRadius(5);
-        _mqtt_dot->align(LV_ALIGN_LEFT_MID, 112, 26);
+        _mqtt_dot->setSize(12, 12);
+        _mqtt_dot->setRadius(6);
+        _mqtt_dot->align(LV_ALIGN_LEFT_MID, 115, 33);
 
         _mqtt_status = std::make_unique<Label>(parent);
         _mqtt_status->setText("MQTT");
-        _mqtt_status->setTextColor(lv_color_hex(colorPrimary));
-        _mqtt_status->setTextFont(&lv_font_montserrat_18);
-        _mqtt_status->align(LV_ALIGN_LEFT_MID, 127, 26);
+        _mqtt_status->setTextColor(lv_color_hex(COLOR_TEXT));
+        _mqtt_status->setTextFont(&lv_font_montserrat_20);
+        _mqtt_status->align(LV_ALIGN_LEFT_MID, 134, 31);
 
         update();
     }
@@ -223,13 +227,13 @@ public:
         _bat_top->setBgColor(lv_color_hex(colorSecondary));
         _bat_top->setScrollbarMode(LV_SCROLLBAR_MODE_OFF);
         _bat_top->setBorderWidth(0);
-        _bat_top->setSize(4, 4);
+        _bat_top->setSize(5, 6);
         _bat_top->setRadius(4);
         _bat_top->setOutlineWidth(1);
         _bat_top->setOutlineColor(lv_color_hex(colorPrimary));
 
         _bar = std::make_unique<uitk::lvgl_cpp::Bar>(parent);
-        _bar->setSize(30, 12);
+        _bar->setSize(36, 16);
         _bar->setRadius(4);
         _bar->setRadius(0, LV_PART_INDICATOR);
         _bar->setBgColor(lv_color_hex(colorSecondary));
@@ -252,7 +256,7 @@ public:
     void align(lv_align_t align, int32_t x_ofs, int32_t y_ofs)
     {
         _bar->align(align, x_ofs, y_ofs);
-        lv_obj_align_to(_bat_top->get(), _bar->get(), LV_ALIGN_CENTER, 15, 0);
+        lv_obj_align_to(_bat_top->get(), _bar->get(), LV_ALIGN_CENTER, 19, 0);
         lv_obj_align_to(_lightning_icon->get(), _bar->get(), LV_ALIGN_CENTER, 0, 0);
     }
 
@@ -264,7 +268,7 @@ public:
     void setCharging(bool charging)
     {
         if (charging) {
-            _bar->setBgColor(lv_color_hex(0x19C25F), LV_PART_INDICATOR);
+            _bar->setBgColor(lv_color_hex(COLOR_CONNECTED), LV_PART_INDICATOR);
             _lightning_icon->setHidden(false);
         } else {
             _bar->setBgColor(lv_color_hex(_color_primary), LV_PART_INDICATOR);
@@ -282,16 +286,16 @@ private:
 
 class Battery : public Widget {
 public:
-    Battery(lv_obj_t* parent, uint32_t colorSecondary, uint32_t colorPrimary)
+    Battery(lv_obj_t* parent)
     {
         _label_level = std::make_unique<Label>(parent);
         _label_level->setText("");
-        _label_level->setTextColor(lv_color_hex(colorPrimary));
+        _label_level->setTextColor(lv_color_hex(COLOR_TEXT));
         _label_level->setTextFont(&lv_font_montserrat_20);
-        _label_level->align(LV_ALIGN_RIGHT_MID, -84, 55);
+        _label_level->align(LV_ALIGN_RIGHT_MID, -95, 65);
 
-        _battery_icon = std::make_unique<BatteryIcon>(parent, colorSecondary, colorPrimary);
-        _battery_icon->align(LV_ALIGN_RIGHT_MID, -43, 55);
+        _battery_icon = std::make_unique<BatteryIcon>(parent, COLOR_PANEL_BG, COLOR_TEXT);
+        _battery_icon->align(LV_ALIGN_RIGHT_MID, -45, 65);
 
         update();
     }
@@ -314,18 +318,20 @@ public:
     StatusBarView(lv_obj_t* parent, uint32_t colorSecondary, uint32_t colorPrimary)
     {
         _panel = std::make_unique<uitk::lvgl_cpp::Container>(lv_screen_active());
-        _panel->setBgColor(lv_color_hex(colorSecondary));
+        _panel->setBgColor(lv_color_hex(COLOR_PANEL_BG));
         _panel->setScrollbarMode(LV_SCROLLBAR_MODE_OFF);
         _panel->align(LV_ALIGN_TOP_MID, 0, 0);
         _panel->setBorderWidth(0);
-        _panel->setSize(220, 140);
+        _panel->setOutlineWidth(2);
+        _panel->setOutlineColor(lv_color_hex(COLOR_OUTLINE));
+        _panel->setSize(220, 155);
         _panel->setRadius(27);
         _panel->setPadding(0, 0, 0, 0);
         _panel->removeFlag(LV_OBJ_FLAG_SCROLLABLE);
         _panel->onClick().connect([this]() { hide(); });
 
-        _widgets.push_back(std::make_unique<StatusInfo>(_panel->get(), colorPrimary));
-        _widgets.push_back(std::make_unique<Battery>(_panel->get(), colorSecondary, colorPrimary));
+        _widgets.push_back(std::make_unique<StatusInfo>(_panel->get()));
+        _widgets.push_back(std::make_unique<Battery>(_panel->get()));
 
         _panel->setPos(0, _pos_y_hide);
         _panel->setHidden(true);
@@ -377,8 +383,8 @@ public:
     }
 
 private:
-    const int _pos_y_show = -17;
-    const int _pos_y_hide = -160;
+    const int _pos_y_show = -35;
+    const int _pos_y_hide = -180;
 
     std::unique_ptr<Container> _panel;
     std::vector<std::unique_ptr<Widget>> _widgets;
