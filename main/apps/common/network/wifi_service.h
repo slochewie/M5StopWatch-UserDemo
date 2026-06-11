@@ -11,6 +11,8 @@ struct Config {
 
 bool begin(const Config& config);
 void recoverConnection();
+void setRecoveryPaused(bool paused);
+bool isRecoveryPaused();
 bool isStarted();
 bool isConnected();
 const char* ssid();
