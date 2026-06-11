@@ -28,6 +28,7 @@ bool s_initialized = false;
 bool s_started = false;
 bool s_connected = false;
 bool s_associated = false;
+bool s_recovery_paused = false;
 int s_retry_count = 0;
 int s_dhcp_stall_count = 0;
 
@@ -72,7 +73,11 @@ void eventHandler(void* arg, esp_event_base_t event_base, int32_t event_id, void
         s_connected = false;
         s_associated = false;
         ESP_LOGI(TAG, "Wi-Fi STA started");
-        esp_wifi_connect();
+        if (!s_recovery_paused) {
+            esp_wifi_connect();
+        } else {
+            ESP_LOGI(TAG, "Wi-Fi recovery paused; STA start will not auto-connect");
+        }
         return;
     }
 
@@ -95,6 +100,13 @@ void eventHandler(void* arg, esp_event_base_t event_base, int32_t event_id, void
         s_associated = false;
         if (s_event_group != nullptr) {
             xEventGroupClearBits(s_event_group, WIFI_CONNECTED_BIT);
+        }
+
+        if (s_recovery_paused) {
+            ESP_LOGI(TAG,
+                     "Wi-Fi disconnected while recovery paused, reason=%d",
+                     event == nullptr ? -1 : static_cast<int>(event->reason));
+            return;
         }
 
         ++s_retry_count;
@@ -225,6 +237,11 @@ bool applyConfig()
 
 void reconnectAfterDhcpStall()
 {
+    if (s_recovery_paused) {
+        ESP_LOGI(TAG, "Wi-Fi recovery paused; DHCP stall recovery skipped");
+        return;
+    }
+
     ++s_dhcp_stall_count;
     ESP_LOGW(TAG,
              "Wi-Fi associated but DHCP did not complete, stall %d/%d",
@@ -244,6 +261,11 @@ void reconnectAfterDhcpStall()
 bool begin(const Config& config)
 {
     s_config = config;
+
+    if (s_recovery_paused) {
+        ESP_LOGI(TAG, "Wi-Fi begin skipped; recovery paused");
+        return false;
+    }
 
     if (!ensureInitialized()) {
         return false;
@@ -289,6 +311,11 @@ bool begin(const Config& config)
 
 void recoverConnection()
 {
+    if (s_recovery_paused) {
+        ESP_LOGI(TAG, "Wi-Fi recovery skipped; paused");
+        return;
+    }
+
     if (!s_initialized) {
         if (!s_config.ssid.empty()) {
             (void)begin(s_config);
@@ -318,6 +345,25 @@ void recoverConnection()
     }
 }
 
+void setRecoveryPaused(bool paused)
+{
+    if (s_recovery_paused == paused) {
+        return;
+    }
+
+    s_recovery_paused = paused;
+    if (paused) {
+        ESP_LOGI(TAG, "Wi-Fi recovery paused");
+    } else {
+        ESP_LOGI(TAG, "Wi-Fi recovery resumed");
+    }
+}
+
+bool isRecoveryPaused()
+{
+    return s_recovery_paused;
+}
+
 bool isStarted()
 {
     return s_started;
@@ -335,6 +381,9 @@ const char* ssid()
 
 const char* statusText()
 {
+    if (s_recovery_paused) {
+        return "WiFi AP";
+    }
     if (!s_initialized || !s_started) {
         return "WiFi --";
     }
