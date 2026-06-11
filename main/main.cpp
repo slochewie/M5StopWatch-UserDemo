@@ -11,6 +11,7 @@
 #include <hal/hal.h>
 #include <lv_demos.h>
 #include <apps/common/audio/audio.h>
+#include <apps/common/sleep_manager/sleep_manager.h>
 #include <counter_service.h>
 #include <hal/utils/configure_ap/configure_ap.h>
 #include <cstdlib>
@@ -58,6 +59,7 @@ extern "C" void app_main(void)
     GetHAL().init();
 
     counter_service::begin();
+    sleep_manager::begin();
 
     ui_hal::on_delay([](uint32_t ms) { GetHAL().delay(ms); });
     ui_hal::on_get_tick([]() { return GetHAL().millis(); });
@@ -70,6 +72,8 @@ extern "C" void app_main(void)
     while (1) {
         GetHAL().feedTheDog();
         runSystemNetworkTick();
+        sleep_manager::setInhibit(configure_ap::isRunning());
+        sleep_manager::update();
         GetMooncake().update();
     }
 }
