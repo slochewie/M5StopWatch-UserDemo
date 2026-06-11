@@ -18,7 +18,7 @@ using namespace smooth_ui_toolkit::lvgl_cpp;
 namespace {
 static constexpr uint32_t BATTERY_PUBLISH_INTERVAL_MS = 60000;
 static constexpr uint32_t TIME_REFRESH_INTERVAL_MS = 1000;
-static constexpr uint32_t DISPLAY_SLEEP_TIMEOUT_MS = 30000;
+static constexpr uint32_t DISPLAY_SLEEP_TIMEOUT_MS = 0;  // Phase 1: disabled; system sleep manager will replace app-owned sleep
 static constexpr uint32_t IMU_WAKE_SAMPLE_INTERVAL_MS = 100;
 static constexpr uint64_t PHASE2_LIGHT_SLEEP_INTERVAL_US = IMU_WAKE_SAMPLE_INTERVAL_MS * 1000ULL;
 static constexpr float WAKE_ACCEL_Y_THRESHOLD = 0.30f;
@@ -145,7 +145,8 @@ void AppCounter::onRunning()
         refreshStatus();
     }
 
-    if (now - _last_activity_ms >= DISPLAY_SLEEP_TIMEOUT_MS) {
+    if (DISPLAY_SLEEP_TIMEOUT_MS > 0 &&
+        now - _last_activity_ms >= DISPLAY_SLEEP_TIMEOUT_MS) {
         enterDisplaySleep();
     }
 }
