@@ -151,10 +151,12 @@ void update()
         return;
     }
 
-    const bool button_activity = readButtonActivity();
-    const bool touch_activity = readTouchActivity();
-
     if (s_sleeping) {
+        // While asleep, the app is not running visibly, so the sleep manager
+        // may consume click events to wake the device.
+        const bool button_activity = readButtonActivity();
+        const bool touch_activity = readTouchActivity();
+
         if (button_activity || touch_activity) {
             exitSleep();
             return;
@@ -181,7 +183,17 @@ void update()
         return;
     }
 
-    if (button_activity || touch_activity) {
+    // While awake, do not call wasClicked() / wasPressed() here.
+    // Those edge events belong to Mooncake apps such as KeyManager.
+    // Touch is safe to use as an idle reset.
+    if (readTouchActivity()) {
+        markActivity();
+        return;
+    }
+
+    // Non-consuming button state check only. This catches active button use
+    // without stealing click events from the current app.
+    if (GetHAL().btnA.isPressed() || GetHAL().btnB.isPressed() || GetHAL().btnPwr.isPressed()) {
         markActivity();
         return;
     }

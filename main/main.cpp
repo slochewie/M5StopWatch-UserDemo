@@ -73,7 +73,14 @@ extern "C" void app_main(void)
         GetHAL().feedTheDog();
         runSystemNetworkTick();
         sleep_manager::setInhibit(configure_ap::isRunning());
-        sleep_manager::update();
-        GetMooncake().update();
+
+        if (sleep_manager::isSleeping()) {
+            // While asleep, sleep_manager owns wake inputs.
+            sleep_manager::update();
+        } else {
+            // While awake, apps own button click events first.
+            GetMooncake().update();
+            sleep_manager::update();
+        }
     }
 }
