@@ -10,9 +10,23 @@
 
 namespace configure_ap {
 
+inline bool& runningFlag()
+{
+    static bool running = false;
+    return running;
+}
+
+inline void setRunning(bool running)
+{
+    runningFlag() = running;
+}
+
+inline bool isRunning()
+{
+    return runningFlag();
+}
+
 bool run(const std::function<void(std::string_view)>& onLog);
 void requestStop();
-void setRunning(bool running);
-bool isRunning();
 
 }  // namespace configure_ap
