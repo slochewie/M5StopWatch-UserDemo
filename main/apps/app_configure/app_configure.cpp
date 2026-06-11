@@ -10,6 +10,7 @@
 #include <hal/utils/configure_ap/configure_ap.h>
 #include <mooncake_log.h>
 #include <smooth_lvgl.hpp>
+#include <apps/common/network/wifi_service.h>
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -147,6 +148,7 @@ void AppConfigure::startConfigurePortal()
 
     _portal_active = true;
     configure_ap::setRunning(true);
+    common::wifi::setRecoveryPaused(true);
 
     {
         LvglLockGuard lock;
@@ -165,6 +167,7 @@ void AppConfigure::startConfigurePortal()
     if (created != pdPASS) {
         _portal_active = false;
         configure_ap::setRunning(false);
+        common::wifi::setRecoveryPaused(false);
         LvglLockGuard lock;
         refreshStatus("Failed to start portal task.");
     }
@@ -174,6 +177,7 @@ void AppConfigure::onPortalClosed()
 {
     _portal_active = false;
     configure_ap::setRunning(false);
+    common::wifi::setRecoveryPaused(false);
 
     if (!_is_open) {
         return;
@@ -188,6 +192,7 @@ void AppConfigure::portalTask(void* arg)
     auto* app = static_cast<AppConfigure*>(arg);
     if (app == nullptr) {
         configure_ap::setRunning(false);
+        common::wifi::setRecoveryPaused(false);
         vTaskDelete(nullptr);
         return;
     }
