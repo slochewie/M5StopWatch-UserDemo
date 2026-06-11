@@ -12,6 +12,7 @@
 #include <lv_demos.h>
 #include <apps/common/audio/audio.h>
 #include <counter_service.h>
+#include <hal/utils/configure_ap/configure_ap.h>
 #include <cstdlib>
 #include <ctime>
 
@@ -31,6 +32,12 @@ void setLocalTimezone()
 void runSystemNetworkTick()
 {
     static uint32_t last_recovery_ms = 0;
+
+    if (configure_ap::isRunning()) {
+        last_recovery_ms = GetHAL().millis();
+        return;
+    }
+
     const uint32_t now = GetHAL().millis();
 
     if (last_recovery_ms == 0 || now - last_recovery_ms >= NETWORK_RECOVERY_INTERVAL_MS) {
