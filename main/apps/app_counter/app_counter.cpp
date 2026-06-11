@@ -10,7 +10,6 @@
 #include <smooth_lvgl.hpp>
 #include <esp_sleep.h>
 #include <cstdio>
-#include <ctime>
 #include <counter_service.h>
 
 using namespace mooncake;
@@ -92,8 +91,6 @@ void AppCounter::onRunning()
         const bool touch_wake = hasTouchInput();
         const bool orientation_wake = updateOrientationWake();
 
-        // Do not perform MQTT sync or publish work while display/light sleep is active.
-        // Long sleep periods can leave the Wi-Fi/MQTT stack stale; recover after wake instead.
         if (button_wake || touch_wake || orientation_wake) {
             wakeFromDisplaySleep();
             LvglLockGuard lock;
@@ -286,38 +283,12 @@ bool AppCounter::hasTouchInput()
 
 void AppCounter::refreshTime(bool force)
 {
-    if (!_label_time) {
+    if (!_arc_top_clock) {
         return;
     }
 
-    const uint32_t now_ms = GetHAL().millis();
-    if (!force && now_ms - _last_time_update < TIME_REFRESH_INTERVAL_MS) {
-        return;
-    }
-
-    std::time_t now = std::time(nullptr);
-    std::tm local_time = {};
-    if (localtime_r(&now, &local_time) == nullptr) {
-        lv_label_set_text(_label_time, "--:-- --");
-        _last_time_update = now_ms;
-        return;
-    }
-
-    const bool is_pm = local_time.tm_hour >= 12;
-    int hour_12 = local_time.tm_hour % 12;
-    if (hour_12 == 0) {
-        hour_12 = 12;
-    }
-
-    char buffer[12];
-    std::snprintf(buffer,
-                  sizeof(buffer),
-                  "%d:%02d %s",
-                  hour_12,
-                  local_time.tm_min,
-                  is_pm ? "PM" : "AM");
-    lv_label_set_text(_label_time, buffer);
-    _last_time_update = now_ms;
+    _arc_top_clock->update(force);
+    _last_time_update = GetHAL().millis();
 }
 
 void AppCounter::refreshValue()
@@ -442,18 +413,18 @@ void AppCounter::createUi()
     lv_obj_set_style_radius(_panel, 0, 0);
     lv_obj_set_style_pad_all(_panel, 0, 0);
 
-    _label_time = lv_label_create(_panel);
-    lv_label_set_text(_label_time, "--:-- --");
-    lv_obj_set_style_text_color(_label_time, lv_color_hex(0xBFBFBF), 0);
-    lv_obj_set_style_text_font(_label_time, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_align(_label_time, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(_label_time, LV_ALIGN_TOP_MID, 0, 28);
+    _arc_top_clock = std::make_unique<view::ArcTopClock>(_panel);
+    _arc_top_clock->color = 0xBFBFBF;
+    _arc_top_clock->displayRadius = 233;
+    _arc_top_clock->updateInterval = TIME_REFRESH_INTERVAL_MS;
+    _arc_top_clock->init();
+    lv_obj_align(_arc_top_clock->get(), LV_ALIGN_TOP_MID, 0, 0);
 
     _label_value = lv_label_create(_panel);
     lv_label_set_text(_label_value, "0");
     lv_obj_set_style_text_color(_label_value, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_text_font(_label_value, &lv_font_maple_mono_medium_48, 0);
-    lv_obj_align(_label_value, LV_ALIGN_CENTER, 0, -55);
+    lv_obj_align(_label_value, LV_ALIGN_CENTER, 0, -35);
 
     _button_reset = lv_button_create(_panel);
     lv_obj_set_size(_button_reset, 210, 72);
@@ -507,7 +478,7 @@ void AppCounter::createUi()
 
 void AppCounter::destroyUi()
 {
-    _label_time = nullptr;
+    _arc_top_clock.reset();
     _label_value = nullptr;
     _label_status = nullptr;
     _button_reset = nullptr;

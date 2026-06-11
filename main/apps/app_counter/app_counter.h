@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 #pragma once
+#include <apps/common/arc_top_clock/arc_top_clock.h>
 #include <apps/common/key_manager/key_manager.h>
 #include <mooncake.h>
 #include <memory>
@@ -20,8 +21,8 @@ public:
 
 private:
     std::unique_ptr<input::KeyManager> _key_manager;
+    std::unique_ptr<view::ArcTopClock> _arc_top_clock;
     lv_obj_t* _panel = nullptr;
-    lv_obj_t* _label_time = nullptr;
     lv_obj_t* _label_value = nullptr;
     lv_obj_t* _label_status = nullptr;
     lv_obj_t* _button_reset = nullptr;
