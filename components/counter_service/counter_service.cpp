@@ -294,7 +294,18 @@ void begin()
 
 void recoverConnection()
 {
+    // Sleep manager intentionally pauses Wi-Fi recovery before stopping Wi-Fi.
+    // Do not attempt Wi-Fi or MQTT recovery while paused.
+    if (common::wifi::isRecoveryPaused()) {
+        return;
+    }
+
     common::wifi::recoverConnection();
+
+    // MQTT recovery only makes sense once Wi-Fi is actually connected.
+    if (!common::wifi::isConnected()) {
+        return;
+    }
 
     if (!common::mqtt::isStarted()) {
         begin();
