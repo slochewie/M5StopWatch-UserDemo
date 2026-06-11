@@ -92,3 +92,4 @@ main/secrets.h
 main/secrets.hpp
 main/wifi_config.h
 main/mqtt_config.h
+apply_safe_wifi_wake_fix.py
