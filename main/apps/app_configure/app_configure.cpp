@@ -146,6 +146,7 @@ void AppConfigure::startConfigurePortal()
     }
 
     _portal_active = true;
+    configure_ap::setRunning(true);
 
     {
         LvglLockGuard lock;
@@ -163,6 +164,7 @@ void AppConfigure::startConfigurePortal()
 
     if (created != pdPASS) {
         _portal_active = false;
+        configure_ap::setRunning(false);
         LvglLockGuard lock;
         refreshStatus("Failed to start portal task.");
     }
@@ -171,6 +173,7 @@ void AppConfigure::startConfigurePortal()
 void AppConfigure::onPortalClosed()
 {
     _portal_active = false;
+    configure_ap::setRunning(false);
 
     if (!_is_open) {
         return;
@@ -184,6 +187,7 @@ void AppConfigure::portalTask(void* arg)
 {
     auto* app = static_cast<AppConfigure*>(arg);
     if (app == nullptr) {
+        configure_ap::setRunning(false);
         vTaskDelete(nullptr);
         return;
     }
