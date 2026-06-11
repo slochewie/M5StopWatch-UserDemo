@@ -12,5 +12,7 @@ namespace configure_ap {
 
 bool run(const std::function<void(std::string_view)>& onLog);
 void requestStop();
+void setRunning(bool running);
+bool isRunning();
 
 }  // namespace configure_ap
