@@ -33,14 +33,17 @@ uint8_t battery_millivolts_to_percent(uint16_t millivolts)
     return static_cast<uint8_t>(std::min<uint32_t>(scaled, 100U));
 }
 
-constexpr uint32_t _bat_reading_period_ms = 1000;
+constexpr uint32_t _bat_reading_awake_period_ms = 1000;
+constexpr uint32_t _bat_reading_sleep_period_ms = 60000;
 constexpr uint16_t _bat_filter_weight_old = 7;
 constexpr uint16_t _bat_filter_weight_new = 1;
 constexpr uint16_t _bat_filter_weight_sum = _bat_filter_weight_old + _bat_filter_weight_new;
 
 uint8_t _bat_level        = 0;
 uint16_t _bat_filtered_mv = 0;
+bool _pmic_app_sleep = false;
 std::mutex _bat_level_mutex;
+std::mutex _pmic_sleep_mutex;
 
 void update_bat_level(uint8_t level)
 {
@@ -61,6 +64,23 @@ void update_bat_level_from_mv(uint16_t millivolts)
     update_bat_level(battery_millivolts_to_percent(_bat_filtered_mv));
 }
 
+bool is_pmic_app_sleep()
+{
+    std::lock_guard<std::mutex> lock(_pmic_sleep_mutex);
+    return _pmic_app_sleep;
+}
+
+void set_pmic_app_sleep(bool sleeping)
+{
+    std::lock_guard<std::mutex> lock(_pmic_sleep_mutex);
+    _pmic_app_sleep = sleeping;
+}
+
+uint32_t current_bat_reading_period_ms()
+{
+    return is_pmic_app_sleep() ? _bat_reading_sleep_period_ms : _bat_reading_awake_period_ms;
+}
+
 void bat_reading_task(void* param)
 {
     mclog::tagInfo(_tag, "start bat reading task");
@@ -73,7 +93,7 @@ void bat_reading_task(void* param)
             }
         }
 
-        vTaskDelay(pdMS_TO_TICKS(_bat_reading_period_ms));
+        vTaskDelay(pdMS_TO_TICKS(current_bat_reading_period_ms()));
     }
 }
 
@@ -141,6 +161,30 @@ bool Hal::pmic_get_pwr_btn_state()
         return _pm1->btnGetState(&result);
     }
     return result;
+}
+
+void Hal::pmicEnterAppSleep()
+{
+    set_pmic_app_sleep(true);
+    mclog::tagInfo(_tag, "app sleep: battery polling slowed");
+}
+
+void Hal::pmicExitAppSleep()
+{
+    set_pmic_app_sleep(false);
+    mclog::tagInfo(_tag, "app wake: battery polling restored");
+
+    if (_pm1) {
+        uint16_t battery_mv = 0;
+        if (_pm1->readVbat(&battery_mv) == M5PM1_OK) {
+            update_bat_level_from_mv(battery_mv);
+        }
+    }
+}
+
+bool Hal::isPmicAppSleep()
+{
+    return is_pmic_app_sleep();
 }
 
 uint8_t Hal::getBatteryLevel()

@@ -158,6 +158,9 @@ public:
     /* ---------------------------------- Power --------------------------------- */
     uint8_t getBatteryLevel();
     bool isBatteryCharging(bool strict = false);
+    void pmicEnterAppSleep();
+    void pmicExitAppSleep();
+    bool isPmicAppSleep();
 
     /* --------------------------------- Display -------------------------------- */
     void setBackLightBrightness(int brightness, bool saveToSettings = false);

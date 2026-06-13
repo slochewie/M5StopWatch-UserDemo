@@ -140,6 +140,7 @@ void enterSleep()
 
     mclog::tagInfo(TAG, "display sleep enter");
     disconnectNetworkForSleep();
+    GetHAL().pmicEnterAppSleep();
     GetHAL().setBackLightBrightness(0);
 }
 
@@ -155,6 +156,7 @@ void exitSleep()
     s_last_activity_ms = GetHAL().millis();
 
     mclog::tagInfo(TAG, "display sleep wake");
+    GetHAL().pmicExitAppSleep();
     GetHAL().setBackLightBrightness(s_saved_brightness > 0 ? s_saved_brightness : 80);
     restoreNetworkAfterWake();
 }
