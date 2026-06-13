@@ -107,18 +107,6 @@ void bat_reading_task(void* param)
 #define PMG3_CHG_PROG    M5PM1_GPIO_NUM_3
 #define PMG1_G12_PY_IRQ  M5PM1_GPIO_NUM_1
 
-#ifndef PMIC_SLEEP_WAKE_TIMER_SECONDS
-#define PMIC_SLEEP_WAKE_TIMER_SECONDS 30
-#endif
-
-#define PMIC_SLEEP_PMG0_EDGE_FACTORY 0
-#define PMIC_SLEEP_PMG0_EDGE_FALLING 1
-#define PMIC_SLEEP_PMG0_EDGE_RISING  2
-#ifndef PMIC_SLEEP_PMG0_EDGE_MODE
-#define PMIC_SLEEP_PMG0_EDGE_MODE PMIC_SLEEP_PMG0_EDGE_FACTORY
-#endif
-
-
 
 void Hal::pmic_init()
 {
@@ -133,14 +121,6 @@ void Hal::pmic_init()
 
     _pm1->setI2cSleepTime(0);
     _pm1->setI2cSleepTime(0);
-
-    uint8_t boot_wake_src = 0;
-    if (_pm1->getWakeSource(&boot_wake_src, M5PM1_CLEAN_ONCE) == M5PM1_OK) {
-        mclog::tagInfo(_tag, "PMIC boot wake source: 0x{:02X}", static_cast<int>(boot_wake_src));
-    }
-
-    const auto timer_clear_result = _pm1->timerClear();
-    mclog::tagInfo(_tag, "PMIC boot timerClear -> {}", static_cast<int>(timer_clear_result));
 
     // set button delay click 1s
     _pm1->btnSetConfig(M5PM1_BTN_TYPE_CLICK, M5PM1_BTN_CLICK_DELAY_1000MS);
@@ -196,51 +176,6 @@ bool Hal::pmicShutdownForSleep()
     }
 
     mclog::tagInfo(_tag, "PMIC sleep shutdown requested");
-
-    // Safety net: timer wake should recover the device even if PMG0 motion wake
-    // does not work from shutdown.
-#if PMIC_SLEEP_WAKE_TIMER_SECONDS > 0
-    const auto timer_result = _pm1->timerSet(PMIC_SLEEP_WAKE_TIMER_SECONDS, M5PM1_TIM_ACTION_POWERON);
-    mclog::tagInfo(_tag,
-                   "PMIC sleep wake timer set: seconds={} result={}",
-                   static_cast<int>(PMIC_SLEEP_WAKE_TIMER_SECONDS),
-                   static_cast<int>(timer_result));
-    if (timer_result != M5PM1_OK) {
-        mclog::tagWarn(_tag, "PMIC sleep wake timer setup failed; continuing shutdown test anyway");
-    }
-#else
-    mclog::tagInfo(_tag, "PMIC sleep wake timer disabled");
-#endif
-
-    // Motion wake experiment: arm PMG0 immediately before shutdown.
-    const auto wake_enable_result = _pm1->gpioSetWakeEnable(PMG0_RTC_IMU_INT, true);
-    mclog::tagInfo(_tag,
-                   "PMIC sleep PMG0 wake enable before shutdown -> {}",
-                   static_cast<int>(wake_enable_result));
-
-#if PMIC_SLEEP_PMG0_EDGE_MODE == PMIC_SLEEP_PMG0_EDGE_FALLING
-    const auto edge_result = _pm1->gpioSetWakeEdge(PMG0_RTC_IMU_INT, M5PM1_GPIO_WAKE_FALLING);
-    mclog::tagInfo(_tag,
-                   "PMIC sleep PMG0 wake edge before shutdown: FALLING -> {}",
-                   static_cast<int>(edge_result));
-#elif PMIC_SLEEP_PMG0_EDGE_MODE == PMIC_SLEEP_PMG0_EDGE_RISING
-    const auto edge_result = _pm1->gpioSetWakeEdge(PMG0_RTC_IMU_INT, M5PM1_GPIO_WAKE_RISING);
-    mclog::tagInfo(_tag,
-                   "PMIC sleep PMG0 wake edge before shutdown: RISING -> {}",
-                   static_cast<int>(edge_result));
-#else
-    mclog::tagInfo(_tag, "PMIC sleep PMG0 wake edge before shutdown: factory/default unchanged");
-#endif
-
-    uint8_t pmg0_level = 1;
-    if (_pm1->gpioGetInput(PMG0_RTC_IMU_INT, &pmg0_level) == M5PM1_OK) {
-        mclog::tagInfo(_tag,
-                       "PMIC sleep PMG0 level before shutdown: {}",
-                       static_cast<int>(pmg0_level));
-    }
-
-    GetHAL().delay(100);
-
     const auto result = _pm1->shutdown();
     if (result != M5PM1_OK) {
         mclog::tagWarn(_tag, "PMIC sleep shutdown failed: {}", static_cast<int>(result));

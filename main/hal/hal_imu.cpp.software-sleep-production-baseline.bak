@@ -10,7 +10,7 @@
 #include <freertos/task.h>
 
 #ifndef BMI270_PMG0_PHASE1_DIAG
-#define BMI270_PMG0_PHASE1_DIAG 0
+#define BMI270_PMG0_PHASE1_DIAG 1
 #endif
 
 

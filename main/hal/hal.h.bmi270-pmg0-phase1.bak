@@ -227,7 +227,6 @@ public:
     };
     void updateImuData();
     bool imuGetInterruptStatus0(uint8_t& status);
-    bool imuGetInterruptStatus1(uint8_t& status);
     const ImuData& getImuData() const
     {
         return _imu_data;

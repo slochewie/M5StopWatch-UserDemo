@@ -79,6 +79,7 @@ bool samplePmg0IfDue(const char* reason)
     if (!s_last_pmg0_level_valid) {
         s_last_pmg0_level_valid = true;
         s_last_pmg0_level = level;
+        mclog::tagInfo(TAG, "PMG0 sampler ({}): initial level={}", reason ? reason : "unknown", static_cast<int>(level));
         return false;
     }
 
@@ -88,6 +89,18 @@ bool samplePmg0IfDue(const char* reason)
 
     uint8_t imu_status = 0;
     const bool have_imu_status = GetHAL().imuGetInterruptStatus0(imu_status);
+    if (have_imu_status) {
+        mclog::tagInfo(TAG, "PMG0 sampler ({}): level changed {} -> {}, BMI270_INT_STATUS_0=0x{:02X}",
+                       reason ? reason : "unknown",
+                       static_cast<int>(s_last_pmg0_level),
+                       static_cast<int>(level),
+                       static_cast<int>(imu_status));
+    } else {
+        mclog::tagInfo(TAG, "PMG0 sampler ({}): level changed {} -> {}, BMI270_INT_STATUS_0=<read failed>",
+                       reason ? reason : "unknown",
+                       static_cast<int>(s_last_pmg0_level),
+                       static_cast<int>(level));
+    }
 
     const uint8_t previous_level = s_last_pmg0_level;
     s_last_pmg0_level = level;
@@ -96,11 +109,6 @@ bool samplePmg0IfDue(const char* reason)
     const bool bmi270_any_motion = have_imu_status && ((imu_status & BMI270_ANY_MOTION_STATUS_MASK) != 0);
 
     if (rising_edge && bmi270_any_motion) {
-        mclog::tagInfo(TAG,
-                       "PMG0/BMI270 any-motion edge: {} -> {}, INT_STATUS_0=0x{:02X}",
-                       static_cast<int>(previous_level),
-                       static_cast<int>(level),
-                       static_cast<int>(imu_status));
         if (s_pmg0_wake_confirm_count < PMG0_WAKE_CONFIRM_SAMPLES) {
             ++s_pmg0_wake_confirm_count;
         }
@@ -217,9 +225,11 @@ void enterSleep()
     resetPmg0Sampler();
 
     mclog::tagInfo(TAG, "display sleep enter");
+    GetHAL().pmicLogPmg0State("before-app-sleep");
     disconnectNetworkForSleep();
     GetHAL().pmicEnterAppSleep();
     GetHAL().setBackLightBrightness(0);
+    GetHAL().pmicLogPmg0State("after-app-sleep-entry");
 
 #if USE_PMIC_SLEEP
     mclog::tagInfo(TAG, "PMIC sleep experiment enabled: requesting M5PM1 shutdown");
@@ -244,9 +254,11 @@ void exitSleep()
     s_last_activity_ms = GetHAL().millis();
 
     mclog::tagInfo(TAG, "display sleep wake");
+    GetHAL().pmicLogPmg0State("before-app-wake-restore");
     GetHAL().pmicExitAppSleep();
     GetHAL().setBackLightBrightness(s_saved_brightness > 0 ? s_saved_brightness : 80);
     restoreNetworkAfterWake();
+    GetHAL().pmicLogPmg0State("after-app-wake-restore");
     resetPmg0Sampler();
 }
 

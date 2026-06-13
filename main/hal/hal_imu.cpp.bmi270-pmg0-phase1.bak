@@ -6,13 +6,6 @@
 #include "hal.h"
 #include <mooncake_log.h>
 #include <bmi270_bmm150.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/task.h>
-
-#ifndef BMI270_PMG0_PHASE1_DIAG
-#define BMI270_PMG0_PHASE1_DIAG 0
-#endif
-
 
 #ifndef BMI2_I2C_PRIM_ADDR
 #define BMI2_I2C_PRIM_ADDR 0x68
@@ -31,7 +24,6 @@ constexpr uint8_t BMI270_REG_INT1_IO_CTRL  = 0x53;
 constexpr uint8_t BMI270_REG_INT_LATCH     = 0x55;
 constexpr uint8_t BMI270_REG_INT1_MAP_FEAT = 0x56;
 constexpr uint8_t BMI270_REG_INT_STATUS_0  = 0x1C;
-constexpr uint8_t BMI270_REG_INT_STATUS_1  = 0x1D;
 
 constexpr uint8_t BMI270_FEAT_PAGE_ANYMO = 1;
 constexpr uint8_t BMI270_INT1_ACTIVE_LOW_PUSHPULL_OUTPUT = 0x08;
@@ -111,63 +103,6 @@ void configure_bmi270_any_motion_int1()
     }
 }
 
-#if BMI270_PMG0_PHASE1_DIAG
-void bmi270_pmg0_phase1_diag_task(void*)
-{
-    bool have_last = false;
-    uint8_t last_pmg0 = 0xFF;
-    uint8_t last_status0 = 0xFF;
-    uint8_t last_status1 = 0xFF;
-    uint32_t last_log_ms = 0;
-
-    while (true) {
-        uint8_t pmg0 = 0xFF;
-        const bool have_pmg0 = GetHAL().pmicGetPmg0Level(pmg0);
-
-        uint8_t status0 = 0xFF;
-        const bool have_status0 =
-            (_imu_i2c_dev != NULL) &&
-            (i2c_bus_read_byte(_imu_i2c_dev, BMI270_REG_INT_STATUS_0, &status0) == ESP_OK);
-
-        uint8_t status1 = 0xFF;
-        const bool have_status1 =
-            (_imu_i2c_dev != NULL) &&
-            (i2c_bus_read_byte(_imu_i2c_dev, BMI270_REG_INT_STATUS_1, &status1) == ESP_OK);
-
-        const bool changed =
-            !have_last ||
-            pmg0 != last_pmg0 ||
-            status0 != last_status0 ||
-            status1 != last_status1;
-
-        const uint32_t now = GetHAL().millis();
-        const bool periodic = (last_log_ms == 0) || (now - last_log_ms >= 10000);
-
-        if (changed || periodic) {
-            last_log_ms = now;
-            have_last = true;
-            last_pmg0 = pmg0;
-            last_status0 = status0;
-            last_status1 = status1;
-
-            const bool any_motion = have_status0 && ((status0 & 0x40) != 0);
-            mclog::tagInfo(_tag,
-                           "phase1 PMG0/BMI270: t={}ms pmg0={}({}) INT_STATUS_0=0x{:02X}({}) INT_STATUS_1=0x{:02X}({}) any_motion={}",
-                           static_cast<int>(now),
-                           static_cast<int>(pmg0),
-                           have_pmg0 ? "ok" : "fail",
-                           static_cast<int>(status0),
-                           have_status0 ? "ok" : "fail",
-                           static_cast<int>(status1),
-                           have_status1 ? "ok" : "fail",
-                           any_motion ? "yes" : "no");
-        }
-
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
-}
-#endif
-
 }  // namespace
 
 void Hal::imu_init()
@@ -194,10 +129,6 @@ void Hal::imu_init()
     }
 
     configure_bmi270_any_motion_int1();
-#if BMI270_PMG0_PHASE1_DIAG
-    xTaskCreate(bmi270_pmg0_phase1_diag_task, "bmi270_pmg0_diag", 4096, nullptr, 1, nullptr);
-    mclog::tagInfo(_tag, "phase1 PMG0/BMI270 diagnostic task started");
-#endif
 }
 
 bool Hal::imuGetInterruptStatus0(uint8_t& status)
@@ -208,21 +139,6 @@ bool Hal::imuGetInterruptStatus0(uint8_t& status)
 
     uint8_t value = 0;
     if (i2c_bus_read_byte(_imu_i2c_dev, BMI270_REG_INT_STATUS_0, &value) != ESP_OK) {
-        return false;
-    }
-
-    status = value;
-    return true;
-}
-
-bool Hal::imuGetInterruptStatus1(uint8_t& status)
-{
-    if (_imu_i2c_dev == NULL) {
-        return false;
-    }
-
-    uint8_t value = 0;
-    if (i2c_bus_read_byte(_imu_i2c_dev, BMI270_REG_INT_STATUS_1, &value) != ESP_OK) {
         return false;
     }
 
