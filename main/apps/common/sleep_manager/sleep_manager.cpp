@@ -5,8 +5,12 @@
  */
 #include "sleep_manager.h"
 #include <hal/hal.h>
+#include <apps/common/network/wifi_service.h>
+#include <apps/common/network/mqtt_service.h>
 #include <mooncake_log.h>
 #include <cmath>
+#include <esp_wifi.h>
+#include <esp_err.h>
 
 namespace sleep_manager {
 namespace {
@@ -81,6 +85,44 @@ bool isWakeOrientation()
            imu.accelZ >= WAKE_Z_MIN;
 }
 
+void disconnectNetworkForSleep()
+{
+    mclog::tagInfo(TAG, "network sleep: pause MQTT/Wi-Fi and stop radio");
+
+    common::mqtt::setRecoveryPaused(true);
+    common::wifi::setRecoveryPaused(true);
+
+    const esp_err_t disconnect_err = esp_wifi_disconnect();
+    if (disconnect_err != ESP_OK &&
+        disconnect_err != ESP_ERR_WIFI_NOT_INIT &&
+        disconnect_err != ESP_ERR_WIFI_NOT_STARTED &&
+        disconnect_err != ESP_ERR_WIFI_CONN) {
+        mclog::tagWarn(TAG, "esp_wifi_disconnect failed: {}", esp_err_to_name(disconnect_err));
+    }
+
+    const esp_err_t stop_err = esp_wifi_stop();
+    if (stop_err != ESP_OK &&
+        stop_err != ESP_ERR_WIFI_NOT_INIT &&
+        stop_err != ESP_ERR_WIFI_NOT_STARTED) {
+        mclog::tagWarn(TAG, "esp_wifi_stop failed: {}", esp_err_to_name(stop_err));
+    }
+}
+
+void restoreNetworkAfterWake()
+{
+    mclog::tagInfo(TAG, "network wake: start radio and resume MQTT/Wi-Fi");
+
+    const esp_err_t start_err = esp_wifi_start();
+    if (start_err != ESP_OK &&
+        start_err != ESP_ERR_WIFI_NOT_INIT &&
+        start_err != ESP_ERR_INVALID_STATE) {
+        mclog::tagWarn(TAG, "esp_wifi_start failed: {}", esp_err_to_name(start_err));
+    }
+
+    common::wifi::setRecoveryPaused(false);
+    common::mqtt::setRecoveryPaused(false);
+}
+
 void enterSleep()
 {
     if (s_sleeping) {
@@ -97,6 +139,7 @@ void enterSleep()
     s_wake_orientation_count = 0;
 
     mclog::tagInfo(TAG, "display sleep enter");
+    disconnectNetworkForSleep();
     GetHAL().setBackLightBrightness(0);
 }
 
@@ -113,6 +156,7 @@ void exitSleep()
 
     mclog::tagInfo(TAG, "display sleep wake");
     GetHAL().setBackLightBrightness(s_saved_brightness > 0 ? s_saved_brightness : 80);
+    restoreNetworkAfterWake();
 }
 
 void resetIdleState()

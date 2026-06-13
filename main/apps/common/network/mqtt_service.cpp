@@ -27,6 +27,7 @@ Config s_config;
 esp_mqtt_client_handle_t s_client = nullptr;
 bool s_started = false;
 bool s_connected = false;
+bool s_recovery_paused = false;
 std::vector<Subscription> s_subscriptions;
 
 bool topicMatches(const char* event_topic, int event_topic_len, const std::string& topic)
@@ -155,6 +156,11 @@ bool begin(const Config& config)
 
 void recoverConnection()
 {
+    if (s_recovery_paused) {
+        ESP_LOGI(TAG, "MQTT recovery skipped; paused");
+        return;
+    }
+
     if (s_client == nullptr) {
         if (!s_config.uri.empty()) {
             (void)begin(s_config);
@@ -170,6 +176,36 @@ void recoverConnection()
         }
     }
 }
+
+
+void setRecoveryPaused(bool paused)
+{
+    if (s_recovery_paused == paused) {
+        return;
+    }
+
+    s_recovery_paused = paused;
+
+    if (paused) {
+        ESP_LOGI(TAG, "MQTT recovery paused");
+
+        if (s_client != nullptr) {
+            esp_mqtt_client_disconnect(s_client);
+            esp_mqtt_client_stop(s_client);
+        }
+
+        s_started = false;
+        s_connected = false;
+    } else {
+        ESP_LOGI(TAG, "MQTT recovery resumed");
+    }
+}
+
+bool isRecoveryPaused()
+{
+    return s_recovery_paused;
+}
+
 
 bool isStarted()
 {
@@ -217,6 +253,11 @@ bool subscribe(const char* topic, int qos, MessageCallback callback, void* user_
 
 bool publish(const char* topic, const char* payload, int qos, bool retain)
 {
+    if (s_recovery_paused) {
+        ESP_LOGI(TAG, "Publish skipped, MQTT recovery paused");
+        return false;
+    }
+
     if (!s_started || !s_connected || s_client == nullptr) {
         ESP_LOGW(TAG, "Publish skipped, MQTT not connected");
         return false;
@@ -248,6 +289,9 @@ const char* brokerUri()
 
 const char* statusText()
 {
+    if (s_recovery_paused) {
+        return "MQTT pause";
+    }
     if (!s_started) {
         return "MQTT --";
     }

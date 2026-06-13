@@ -16,6 +16,8 @@ struct Config {
 
 bool begin(const Config& config);
 void recoverConnection();
+void setRecoveryPaused(bool paused);
+bool isRecoveryPaused();
 bool isStarted();
 bool isConnected();
 bool subscribe(const char* topic, int qos, MessageCallback callback, void* user_data = nullptr);
