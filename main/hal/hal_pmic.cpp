@@ -151,6 +151,8 @@ void Hal::pmic_init()
         update_bat_level_from_mv(battery_mv);
     }
 
+    pmicLogPmg0State("boot-after-pmic-init");
+
     xTaskCreate(bat_reading_task, "bat_reading", 4 * 1024, NULL, 1, NULL);
 }
 
@@ -185,6 +187,42 @@ void Hal::pmicExitAppSleep()
 bool Hal::isPmicAppSleep()
 {
     return is_pmic_app_sleep();
+}
+
+bool Hal::pmicGetPmg0Level(uint8_t& level)
+{
+    if (!_pm1) {
+        return false;
+    }
+
+    uint8_t pmg0_level = 1;
+    const auto result = _pm1->gpioGetInput(PMG0_RTC_IMU_INT, &pmg0_level);
+    if (result != M5PM1_OK) {
+        return false;
+    }
+
+    level = pmg0_level;
+    return true;
+}
+
+void Hal::pmicLogPmg0State(const char* reason)
+{
+    if (!_pm1) {
+        mclog::tagWarn(_tag, "PMG0 read-only diag skipped ({}): PMIC not initialized", reason ? reason : "unknown");
+        return;
+    }
+
+    uint8_t pmg0_level = 1;
+    const auto result = _pm1->gpioGetInput(PMG0_RTC_IMU_INT, &pmg0_level);
+    if (result == M5PM1_OK) {
+        mclog::tagInfo(_tag, "PMG0 read-only diag ({}): PMG0_RTC_IMU_INT level={}",
+                       reason ? reason : "unknown",
+                       static_cast<int>(pmg0_level));
+    } else {
+        mclog::tagWarn(_tag, "PMG0 read-only diag ({}) failed: {}",
+                       reason ? reason : "unknown",
+                       static_cast<int>(result));
+    }
 }
 
 uint8_t Hal::getBatteryLevel()

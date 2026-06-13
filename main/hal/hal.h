@@ -161,6 +161,8 @@ public:
     void pmicEnterAppSleep();
     void pmicExitAppSleep();
     bool isPmicAppSleep();
+    void pmicLogPmg0State(const char* reason);
+    bool pmicGetPmg0Level(uint8_t& level);
 
     /* --------------------------------- Display -------------------------------- */
     void setBackLightBrightness(int brightness, bool saveToSettings = false);
@@ -221,6 +223,7 @@ public:
         float gyroZ  = 0.0f;
     };
     void updateImuData();
+    bool imuGetInterruptStatus0(uint8_t& status);
     const ImuData& getImuData() const
     {
         return _imu_data;

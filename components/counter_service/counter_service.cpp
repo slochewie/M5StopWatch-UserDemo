@@ -24,6 +24,7 @@ static constexpr const char* TAG = "CounterService";
 static constexpr const char* TIME_TOPIC = "system/time/epoch";
 static constexpr const char* LOCAL_TIMEZONE = "PST8PDT,M3.2.0,M11.1.0";
 static constexpr time_t MIN_VALID_EPOCH = 1700000000;  // 2023-11-14 sanity floor.
+static constexpr uint32_t BATTERY_SKIP_LOG_INTERVAL_MS = 30000;
 
 device_config::Config s_config;
 std::string s_counter_topic;
@@ -33,6 +34,7 @@ bool s_started = false;
 bool s_has_latest = false;
 int32_t s_latest_value = 0;
 portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
+uint32_t s_last_battery_skip_log_ms = 0;
 
 void applyLocalTimezone()
 {
@@ -236,6 +238,16 @@ void handleMqttMessage(const char* topic, const char* payload, void* user_data)
     }
 }
 
+void logBatteryPublishSkippedThrottled()
+{
+    const uint32_t now = GetHAL().millis();
+    if (s_last_battery_skip_log_ms == 0 ||
+        now - s_last_battery_skip_log_ms >= BATTERY_SKIP_LOG_INTERVAL_MS) {
+        s_last_battery_skip_log_ms = now;
+        ESP_LOGW(TAG, "Battery publish skipped, MQTT not ready");
+    }
+}
+
 bool ensureMqttStarted()
 {
     if (!s_loaded) {
@@ -357,8 +369,11 @@ bool publishValue(int32_t value)
 
 bool publishBatteryPercentage(uint8_t percent)
 {
-    if (!ensureMqttStarted()) {
-        ESP_LOGW(TAG, "Battery publish skipped, MQTT not ready");
+    // Battery publishing is opportunistic. During wake/reconnect, this can be
+    // called frequently by the status bar/battery UI. Do not let that path spam
+    // logs or force repeated MQTT recovery attempts before the network is ready.
+    if (!common::wifi::isConnected() || !common::mqtt::isConnected()) {
+        logBatteryPublishSkippedThrottled();
         return false;
     }
 

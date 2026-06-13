@@ -20,6 +20,8 @@ static constexpr const char* TAG = "SleepManager";
 static constexpr uint32_t DISPLAY_SLEEP_TIMEOUT_MS = 30000;
 static constexpr uint32_t IMU_SAMPLE_INTERVAL_MS = 100;
 static constexpr uint32_t POST_SLEEP_WAKE_LOCKOUT_MS = 1200;
+static constexpr uint32_t PMG0_SAMPLE_INTERVAL_MS = 100;
+static constexpr uint8_t BMI270_ANY_MOTION_STATUS_MASK = 0x40;
 
 static constexpr float HANGING_Y_MIN = 0.70f;
 static constexpr float HANGING_Z_ABS_MAX = 0.45f;
@@ -42,6 +44,64 @@ int s_saved_brightness = 80;
 
 uint8_t s_sleep_orientation_count = 0;
 uint8_t s_wake_orientation_count = 0;
+
+bool s_last_pmg0_level_valid = false;
+uint8_t s_last_pmg0_level = 0;
+uint32_t s_last_pmg0_sample_ms = 0;
+
+void resetPmg0Sampler()
+{
+    s_last_pmg0_level_valid = false;
+    s_last_pmg0_level = 0;
+    s_last_pmg0_sample_ms = 0;
+}
+
+bool samplePmg0IfDue(const char* reason)
+{
+    const uint32_t now = GetHAL().millis();
+    if (s_last_pmg0_sample_ms != 0 && now - s_last_pmg0_sample_ms < PMG0_SAMPLE_INTERVAL_MS) {
+        return false;
+    }
+    s_last_pmg0_sample_ms = now;
+
+    uint8_t level = 0;
+    if (!GetHAL().pmicGetPmg0Level(level)) {
+        return false;
+    }
+
+    if (!s_last_pmg0_level_valid) {
+        s_last_pmg0_level_valid = true;
+        s_last_pmg0_level = level;
+        mclog::tagInfo(TAG, "PMG0 sampler ({}): initial level={}", reason ? reason : "unknown", static_cast<int>(level));
+        return false;
+    }
+
+    if (level == s_last_pmg0_level) {
+        return false;
+    }
+
+    uint8_t imu_status = 0;
+    const bool have_imu_status = GetHAL().imuGetInterruptStatus0(imu_status);
+    if (have_imu_status) {
+        mclog::tagInfo(TAG, "PMG0 sampler ({}): level changed {} -> {}, BMI270_INT_STATUS_0=0x{:02X}",
+                       reason ? reason : "unknown",
+                       static_cast<int>(s_last_pmg0_level),
+                       static_cast<int>(level),
+                       static_cast<int>(imu_status));
+    } else {
+        mclog::tagInfo(TAG, "PMG0 sampler ({}): level changed {} -> {}, BMI270_INT_STATUS_0=<read failed>",
+                       reason ? reason : "unknown",
+                       static_cast<int>(s_last_pmg0_level),
+                       static_cast<int>(level));
+    }
+
+    const uint8_t previous_level = s_last_pmg0_level;
+    s_last_pmg0_level = level;
+
+    const bool rising_edge = previous_level == 0 && level == 1;
+    const bool bmi270_any_motion = have_imu_status && ((imu_status & BMI270_ANY_MOTION_STATUS_MASK) != 0);
+    return rising_edge && bmi270_any_motion;
+}
 
 bool readButtonActivity()
 {
@@ -137,11 +197,14 @@ void enterSleep()
     s_sleeping = true;
     s_sleep_entered_ms = GetHAL().millis();
     s_wake_orientation_count = 0;
+    resetPmg0Sampler();
 
     mclog::tagInfo(TAG, "display sleep enter");
+    GetHAL().pmicLogPmg0State("before-app-sleep");
     disconnectNetworkForSleep();
     GetHAL().pmicEnterAppSleep();
     GetHAL().setBackLightBrightness(0);
+    GetHAL().pmicLogPmg0State("after-app-sleep-entry");
 }
 
 void exitSleep()
@@ -156,9 +219,12 @@ void exitSleep()
     s_last_activity_ms = GetHAL().millis();
 
     mclog::tagInfo(TAG, "display sleep wake");
+    GetHAL().pmicLogPmg0State("before-app-wake-restore");
     GetHAL().pmicExitAppSleep();
     GetHAL().setBackLightBrightness(s_saved_brightness > 0 ? s_saved_brightness : 80);
     restoreNetworkAfterWake();
+    GetHAL().pmicLogPmg0State("after-app-wake-restore");
+    resetPmg0Sampler();
 }
 
 void resetIdleState()
@@ -209,6 +275,13 @@ void update()
         }
 
         if (now - s_sleep_entered_ms < POST_SLEEP_WAKE_LOCKOUT_MS) {
+            (void)samplePmg0IfDue("sleep-lockout");
+            return;
+        }
+
+        if (samplePmg0IfDue("sleep-loop")) {
+            mclog::tagInfo(TAG, "PMG0/BMI270 filtered wake");
+            exitSleep();
             return;
         }
 

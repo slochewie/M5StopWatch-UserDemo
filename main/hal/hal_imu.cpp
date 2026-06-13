@@ -131,6 +131,21 @@ void Hal::imu_init()
     configure_bmi270_any_motion_int1();
 }
 
+bool Hal::imuGetInterruptStatus0(uint8_t& status)
+{
+    if (_imu_i2c_dev == NULL) {
+        return false;
+    }
+
+    uint8_t value = 0;
+    if (i2c_bus_read_byte(_imu_i2c_dev, BMI270_REG_INT_STATUS_0, &value) != ESP_OK) {
+        return false;
+    }
+
+    status = value;
+    return true;
+}
+
 void Hal::updateImuData()
 {
     if (_imu_sensor != NULL) {
