@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <memory>
 #include <mutex>
+#include <cstring>
 #include <cmath>
 
 static const std::string_view _tag = "HAL-PMIC";
@@ -106,6 +107,7 @@ void bat_reading_task(void* param)
 #define PMG3_CHG_PROG    M5PM1_GPIO_NUM_3
 #define PMG1_G12_PY_IRQ  M5PM1_GPIO_NUM_1
 
+
 void Hal::pmic_init()
 {
     mclog::tagInfo(_tag, "pmic init");
@@ -135,6 +137,7 @@ void Hal::pmic_init()
     // instead of powering off on tested hardware. BMI270/orientation wake remains
     // available through the app-level fallback path.
 
+    pmicRunPmg0PublicApiProbe("enable");
     // drive CHG_PROG low to force active charge programming
     _pm1->gpioSet(PMG3_CHG_PROG, M5PM1_GPIO_MODE_OUTPUT, 0, M5PM1_GPIO_PULL_NONE, M5PM1_GPIO_DRIVE_PUSHPULL);
 
@@ -203,6 +206,66 @@ bool Hal::pmicGetPmg0Level(uint8_t& level)
 
     level = pmg0_level;
     return true;
+}
+
+void Hal::pmicRunPmg0PublicApiProbe(const char* mode)
+{
+    if (!_pm1) {
+        mclog::tagWarn(_tag, "PMG0 public API probe skipped: PMIC not initialized");
+        return;
+    }
+
+    const char* selected_mode = mode ? mode : "readonly";
+
+    uint8_t wake_src_before = 0;
+    const auto wake_before_result = _pm1->getWakeSource(&wake_src_before, M5PM1_CLEAN_NONE);
+
+    uint8_t pmg0_before = 1;
+    const auto pmg0_before_result = _pm1->gpioGetInput(PMG0_RTC_IMU_INT, &pmg0_before);
+
+    mclog::tagInfo(_tag,
+                   "PMG0 public API probe before mode={}: wake_result={} WAKE_SRC=0x{:02X} pmg0_result={} PMG0_LEVEL={}",
+                   selected_mode,
+                   static_cast<int>(wake_before_result),
+                   static_cast<int>(wake_src_before),
+                   static_cast<int>(pmg0_before_result),
+                   static_cast<int>(pmg0_before));
+
+    m5pm1_err_t action_result = M5PM1_OK;
+
+    if (std::strcmp(selected_mode, "enable") == 0) {
+        action_result = _pm1->gpioSetWakeEnable(PMG0_RTC_IMU_INT, true);
+        mclog::tagInfo(_tag, "PMG0 public API action: gpioSetWakeEnable(PMG0, true) -> {}",
+                       static_cast<int>(action_result));
+    } else if (std::strcmp(selected_mode, "edge-falling") == 0) {
+        action_result = _pm1->gpioSetWakeEdge(PMG0_RTC_IMU_INT, M5PM1_GPIO_WAKE_FALLING);
+        mclog::tagInfo(_tag, "PMG0 public API action: gpioSetWakeEdge(PMG0, FALLING) -> {}",
+                       static_cast<int>(action_result));
+    } else if (std::strcmp(selected_mode, "edge-rising") == 0) {
+        action_result = _pm1->gpioSetWakeEdge(PMG0_RTC_IMU_INT, M5PM1_GPIO_WAKE_RISING);
+        mclog::tagInfo(_tag, "PMG0 public API action: gpioSetWakeEdge(PMG0, RISING) -> {}",
+                       static_cast<int>(action_result));
+    } else if (std::strcmp(selected_mode, "restore") == 0) {
+        action_result = _pm1->gpioSetWakeEnable(PMG0_RTC_IMU_INT, false);
+        mclog::tagInfo(_tag, "PMG0 public API action: gpioSetWakeEnable(PMG0, false) -> {}",
+                       static_cast<int>(action_result));
+    } else {
+        mclog::tagInfo(_tag, "PMG0 public API action: readonly, no PMG0 wake changes");
+    }
+
+    uint8_t wake_src_after = 0;
+    const auto wake_after_result = _pm1->getWakeSource(&wake_src_after, M5PM1_CLEAN_NONE);
+
+    uint8_t pmg0_after = 1;
+    const auto pmg0_after_result = _pm1->gpioGetInput(PMG0_RTC_IMU_INT, &pmg0_after);
+
+    mclog::tagInfo(_tag,
+                   "PMG0 public API probe after mode={}: wake_result={} WAKE_SRC=0x{:02X} pmg0_result={} PMG0_LEVEL={}",
+                   selected_mode,
+                   static_cast<int>(wake_after_result),
+                   static_cast<int>(wake_src_after),
+                   static_cast<int>(pmg0_after_result),
+                   static_cast<int>(pmg0_after));
 }
 
 void Hal::pmicLogPmg0State(const char* reason)

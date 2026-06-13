@@ -162,7 +162,9 @@ public:
     void pmicExitAppSleep();
     bool isPmicAppSleep();
     void pmicLogPmg0State(const char* reason);
+    void pmicRunPmg0PublicApiProbe(const char* mode);
     bool pmicGetPmg0Level(uint8_t& level);
+    void pmicLogWakeRegisters(const char* reason);
 
     /* --------------------------------- Display -------------------------------- */
     void setBackLightBrightness(int brightness, bool saveToSettings = false);

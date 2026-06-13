@@ -1,0 +1,928 @@
+M5PM1 / PMG0 Investigation Report
+Generated: Sat Jun 13 05:06:26 PDT 2026
+Repo: /Users/aaron/M5StopWatch-Counter
+Git HEAD: f09de0b
+Branch: main
+
+================================================================
+Repository status
+================================================================
+
+$ git status --short
+?? investigate_m5pm1_pmg0.sh
+?? m5pm1_pmg0_investigation_report.txt
+
+================================================================
+Current HAL PMIC PMG definitions and comments
+================================================================
+
+$ grep -R PMG0_RTC_IMU_INT\|PMG[0-9]\|Keep PMG0\|double-click\|power-off\|power off\|ldoSetPowerHold\|setSingleResetDisable -n main/hal
+main/hal/hal_pmic.cpp:103:#define PMG0_RTC_IMU_INT M5PM1_GPIO_NUM_0
+main/hal/hal_pmic.cpp:104:#define PMG2_CHG_STAT    M5PM1_GPIO_NUM_2
+main/hal/hal_pmic.cpp:105:#define PMG4_PORT_INT    M5PM1_GPIO_NUM_4
+main/hal/hal_pmic.cpp:106:#define PMG3_CHG_PROG    M5PM1_GPIO_NUM_3
+main/hal/hal_pmic.cpp:107:#define PMG1_G12_PY_IRQ  M5PM1_GPIO_NUM_1
+main/hal/hal_pmic.cpp:127:    //  hold LDO power close when power off, keep power for RTC
+main/hal/hal_pmic.cpp:128:    _pm1->ldoSetPowerHold(false);
+main/hal/hal_pmic.cpp:130:    // set charge enable or disable, this setting will keep working after power off
+main/hal/hal_pmic.cpp:133:    // Keep PMG0 in the factory/default PMIC configuration. Configuring PMG0 as
+main/hal/hal_pmic.cpp:134:    // an explicit wake-function input caused power-button double-click to reboot
+main/hal/hal_pmic.cpp:139:    _pm1->gpioSet(PMG3_CHG_PROG, M5PM1_GPIO_MODE_OUTPUT, 0, M5PM1_GPIO_PULL_NONE, M5PM1_GPIO_DRIVE_PUSHPULL);
+main/hal/hal_pmic.cpp:141:    _pm1->gpioSetFunc(PMG2_CHG_STAT, M5PM1_GPIO_FUNC_GPIO);
+main/hal/hal_pmic.cpp:142:    _pm1->gpioSetMode(PMG2_CHG_STAT, M5PM1_GPIO_MODE_INPUT);
+main/hal/hal_pmic.cpp:143:    _pm1->gpioSetPull(PMG2_CHG_STAT, M5PM1_GPIO_PULL_NONE);
+main/hal/hal_pmic.cpp:146:    // reset while leaving the PMIC's built-in double-click power-off path intact.
+main/hal/hal_pmic.cpp:147:    _pm1->setSingleResetDisable(true);
+main/hal/hal_pmic.cpp:199:    const auto result = _pm1->gpioGetInput(PMG0_RTC_IMU_INT, &pmg0_level);
+main/hal/hal_pmic.cpp:211:        mclog::tagWarn(_tag, "PMG0 read-only diag skipped ({}): PMIC not initialized", reason ? reason : "unknown");
+main/hal/hal_pmic.cpp:216:    const auto result = _pm1->gpioGetInput(PMG0_RTC_IMU_INT, &pmg0_level);
+main/hal/hal_pmic.cpp:218:        mclog::tagInfo(_tag, "PMG0 read-only diag ({}): PMG0_RTC_IMU_INT level={}",
+main/hal/hal_pmic.cpp:222:        mclog::tagWarn(_tag, "PMG0 read-only diag ({}) failed: {}",
+main/hal/hal_pmic.cpp:244:    const auto chg_result = _pm1->gpioGetInput(PMG2_CHG_STAT, &charge_status);
+
+================================================================
+Current sleep/PMG0/BMI270 integration
+================================================================
+
+$ grep -R PMG0\|BMI270_INT_STATUS_0\|BMI270_ANY_MOTION\|pmicGetPmg0Level\|pmicLogPmg0State\|imuGetInterruptStatus0\|display sleep -n main/apps/common/sleep_manager main/hal
+main/apps/common/sleep_manager/sleep_manager.cpp:23:static constexpr uint32_t PMG0_SAMPLE_INTERVAL_MS = 100;
+main/apps/common/sleep_manager/sleep_manager.cpp:24:static constexpr uint8_t BMI270_ANY_MOTION_STATUS_MASK = 0x40;
+main/apps/common/sleep_manager/sleep_manager.cpp:62:    if (s_last_pmg0_sample_ms != 0 && now - s_last_pmg0_sample_ms < PMG0_SAMPLE_INTERVAL_MS) {
+main/apps/common/sleep_manager/sleep_manager.cpp:68:    if (!GetHAL().pmicGetPmg0Level(level)) {
+main/apps/common/sleep_manager/sleep_manager.cpp:75:        mclog::tagInfo(TAG, "PMG0 sampler ({}): initial level={}", reason ? reason : "unknown", static_cast<int>(level));
+main/apps/common/sleep_manager/sleep_manager.cpp:84:    const bool have_imu_status = GetHAL().imuGetInterruptStatus0(imu_status);
+main/apps/common/sleep_manager/sleep_manager.cpp:86:        mclog::tagInfo(TAG, "PMG0 sampler ({}): level changed {} -> {}, BMI270_INT_STATUS_0=0x{:02X}",
+main/apps/common/sleep_manager/sleep_manager.cpp:92:        mclog::tagInfo(TAG, "PMG0 sampler ({}): level changed {} -> {}, BMI270_INT_STATUS_0=<read failed>",
+main/apps/common/sleep_manager/sleep_manager.cpp:102:    const bool bmi270_any_motion = have_imu_status && ((imu_status & BMI270_ANY_MOTION_STATUS_MASK) != 0);
+main/apps/common/sleep_manager/sleep_manager.cpp:202:    mclog::tagInfo(TAG, "display sleep enter");
+main/apps/common/sleep_manager/sleep_manager.cpp:203:    GetHAL().pmicLogPmg0State("before-app-sleep");
+main/apps/common/sleep_manager/sleep_manager.cpp:207:    GetHAL().pmicLogPmg0State("after-app-sleep-entry");
+main/apps/common/sleep_manager/sleep_manager.cpp:221:    mclog::tagInfo(TAG, "display sleep wake");
+main/apps/common/sleep_manager/sleep_manager.cpp:222:    GetHAL().pmicLogPmg0State("before-app-wake-restore");
+main/apps/common/sleep_manager/sleep_manager.cpp:226:    GetHAL().pmicLogPmg0State("after-app-wake-restore");
+main/apps/common/sleep_manager/sleep_manager.cpp:283:            mclog::tagInfo(TAG, "PMG0/BMI270 filtered wake");
+main/hal/hal.h:164:    void pmicLogPmg0State(const char* reason);
+main/hal/hal.h:165:    bool pmicGetPmg0Level(uint8_t& level);
+main/hal/hal.h:226:    bool imuGetInterruptStatus0(uint8_t& status);
+main/hal/hal_pmic.cpp:103:#define PMG0_RTC_IMU_INT M5PM1_GPIO_NUM_0
+main/hal/hal_pmic.cpp:133:    // Keep PMG0 in the factory/default PMIC configuration. Configuring PMG0 as
+main/hal/hal_pmic.cpp:154:    pmicLogPmg0State("boot-after-pmic-init");
+main/hal/hal_pmic.cpp:192:bool Hal::pmicGetPmg0Level(uint8_t& level)
+main/hal/hal_pmic.cpp:199:    const auto result = _pm1->gpioGetInput(PMG0_RTC_IMU_INT, &pmg0_level);
+main/hal/hal_pmic.cpp:208:void Hal::pmicLogPmg0State(const char* reason)
+main/hal/hal_pmic.cpp:211:        mclog::tagWarn(_tag, "PMG0 read-only diag skipped ({}): PMIC not initialized", reason ? reason : "unknown");
+main/hal/hal_pmic.cpp:216:    const auto result = _pm1->gpioGetInput(PMG0_RTC_IMU_INT, &pmg0_level);
+main/hal/hal_pmic.cpp:218:        mclog::tagInfo(_tag, "PMG0 read-only diag ({}): PMG0_RTC_IMU_INT level={}",
+main/hal/hal_pmic.cpp:222:        mclog::tagWarn(_tag, "PMG0 read-only diag ({}) failed: {}",
+main/hal/hal_imu.cpp:134:bool Hal::imuGetInterruptStatus0(uint8_t& status)
+
+================================================================
+M5PM1 component files present
+================================================================
+
+$ find components -path *M5PM1* -maxdepth 5 -type f
+components/M5PM1/CMakeLists.txt
+components/M5PM1/.DS_Store
+components/M5PM1/LICENSE
+components/M5PM1/README_FUNCTION_CN.md
+components/M5PM1/idf_component.yml
+components/M5PM1/README_FUNCTION_EN.md
+components/M5PM1/README.md
+components/M5PM1/library.json
+components/M5PM1/.gitignore
+components/M5PM1/examples/gpio_pwm/gpio_pwm.ino
+components/M5PM1/examples/neopixel/neopixel.ino
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino
+components/M5PM1/examples/basic_power_adc/basic_power_adc.ino
+components/M5PM1/.clang-format
+components/M5PM1/.github/workflows/Arduino-Lint-Check.yml
+components/M5PM1/.github/workflows/clang-format-check.yml
+components/M5PM1/.github/ISSUE_TEMPLATE/bug-report.yml
+components/M5PM1/.git/config
+components/M5PM1/.git/objects/pack/pack-8c97213f4c3a4d3f1350760edbd8308c45c3f9cc.rev
+components/M5PM1/.git/objects/pack/pack-8c97213f4c3a4d3f1350760edbd8308c45c3f9cc.idx
+components/M5PM1/.git/objects/pack/pack-8c97213f4c3a4d3f1350760edbd8308c45c3f9cc.pack
+components/M5PM1/.git/objects/0a/15b90b70d57d426db4196843fc23afcaa59b4a
+components/M5PM1/.git/objects/dd/697fe8f0865fedcc833bc9da61a263459cc914
+components/M5PM1/.git/objects/e9/2803dd9342b45fbc7d2795af4a2769bb70dfa4
+components/M5PM1/.git/objects/23/43b7bb2e5b7b0a05e5638a008e898346814c25
+components/M5PM1/.git/HEAD
+components/M5PM1/.git/info/exclude
+components/M5PM1/.git/logs/HEAD
+components/M5PM1/.git/description
+components/M5PM1/.git/hooks/commit-msg.sample
+components/M5PM1/.git/hooks/pre-rebase.sample
+components/M5PM1/.git/hooks/sendemail-validate.sample
+components/M5PM1/.git/hooks/pre-commit.sample
+components/M5PM1/.git/hooks/applypatch-msg.sample
+components/M5PM1/.git/hooks/fsmonitor-watchman.sample
+components/M5PM1/.git/hooks/pre-receive.sample
+components/M5PM1/.git/hooks/prepare-commit-msg.sample
+components/M5PM1/.git/hooks/post-update.sample
+components/M5PM1/.git/hooks/pre-merge-commit.sample
+components/M5PM1/.git/hooks/pre-applypatch.sample
+components/M5PM1/.git/hooks/pre-push.sample
+components/M5PM1/.git/hooks/update.sample
+components/M5PM1/.git/hooks/push-to-checkout.sample
+components/M5PM1/.git/refs/heads/main
+components/M5PM1/.git/index
+components/M5PM1/.git/packed-refs
+components/M5PM1/.git/COMMIT_EDITMSG
+components/M5PM1/library.properties
+components/M5PM1/src/M5PM1.cpp
+components/M5PM1/src/.DS_Store
+components/M5PM1/src/M5PM1_i2c_compat.h
+components/M5PM1/src/M5PM1.h
+
+================================================================
+M5PM1 public GPIO / wake / sleep / power APIs in headers
+================================================================
+
+$ grep -R gpio.*Wake\|Wake.*gpio\|wakeup\|Wakeup\|wake\|Wake\|sleep\|Sleep\|power.*off\|powerOff\|PowerOff\|shutdown\|Shutdown\|gpioSet\|gpioGet\|gpio.*Input\|gpio.*Int\|interrupt\|Interrupt\|latch\|Latch\|filter\|Filter -n components/M5PM1
+components/M5PM1/README_FUNCTION_CN.md:19:- `examples/usb_interrupt_sleep/usb_interrupt_sleep.ino`: USB 插拔中断、定时器唤醒与关机示例。
+components/M5PM1/README_FUNCTION_CN.md:46:  - `gpioSet` / `gpioSetFunc` / `gpioSetMode` / `gpioSetOutput` / `gpioGetInput`
+components/M5PM1/README_FUNCTION_CN.md:47:  - `gpioSetPull` / `gpioSetDrive` / `ledEnSetDrive`
+components/M5PM1/README_FUNCTION_CN.md:48:  - `gpioSetWakeEnable` / `gpioSetWakeEdge`
+components/M5PM1/README_FUNCTION_CN.md:54:- `gpioSetPowerHold` / `gpioGetPowerHold`
+components/M5PM1/README_FUNCTION_CN.md:77:- `getWakeSource` / `clearWakeSource`
+components/M5PM1/README_FUNCTION_CN.md:109:- `sysCmd` / `shutdown` / `reboot` / `enterDownloadMode`
+components/M5PM1/README_FUNCTION_CN.md:136:- `setI2cSleepTime` / `getI2cSleepTime`
+components/M5PM1/README_FUNCTION_CN.md:137:- `setAutoWakeEnable` / `isAutoWakeEnabled` / `sendWakeSignal`
+components/M5PM1/README_FUNCTION_EN.md:19:- `examples/usb_interrupt_sleep/usb_interrupt_sleep.ino`: USB plug/unplug interrupt, timer wake, and shutdown demo.
+components/M5PM1/README_FUNCTION_EN.md:46:  - `gpioSet` / `gpioSetFunc` / `gpioSetMode` / `gpioSetOutput` / `gpioGetInput`
+components/M5PM1/README_FUNCTION_EN.md:47:  - `gpioSetPull` / `gpioSetDrive` / `ledEnSetDrive`
+components/M5PM1/README_FUNCTION_EN.md:48:  - `gpioSetWakeEnable` / `gpioSetWakeEdge`
+components/M5PM1/README_FUNCTION_EN.md:54:- `gpioSetPowerHold` / `gpioGetPowerHold`
+components/M5PM1/README_FUNCTION_EN.md:77:- `getWakeSource` / `clearWakeSource`
+components/M5PM1/README_FUNCTION_EN.md:93:### 11) Interrupts
+components/M5PM1/README_FUNCTION_EN.md:101:- **Interrupt masks**
+components/M5PM1/README_FUNCTION_EN.md:109:- `sysCmd` / `shutdown` / `reboot` / `enterDownloadMode`
+components/M5PM1/README_FUNCTION_EN.md:133:### 16) I2C Configuration and Auto Wake
+components/M5PM1/README_FUNCTION_EN.md:136:- `setI2cSleepTime` / `getI2cSleepTime`
+components/M5PM1/README_FUNCTION_EN.md:137:- `setAutoWakeEnable` / `isAutoWakeEnabled` / `sendWakeSignal`
+components/M5PM1/README_FUNCTION_EN.md:163:- `setDownloadLock`, `setSingleResetDisable`, and `setDoubleOffDisable` can make download mode, single-click reset, or double-click shutdown unavailable.
+components/M5PM1/README_FUNCTION_EN.md:171:| **Wake (WAKE)** | GPIO0 / 2 / 3 / 4 support wake | GPIO1 does not support WAKE |
+components/M5PM1/README_FUNCTION_EN.md:174:| **NeoPixel** | GPIO0 only; LED count 1-32; data area 0x60 - 0x9F | I2C is briefly non-interruptible during refresh |
+components/M5PM1/README_FUNCTION_EN.md:175:| **I2C sleep** | Can enter low power after idle timeout | Sleep is ineffective when PWM is enabled or in download mode |
+components/M5PM1/README.md:7:M5PM1 is a dual-platform (ESP-IDF & Arduino) driver library for M5Stack PM1 Power Management IC. It provides comprehensive power management features including battery charging and monitoring, multiple power rails (DCDC 5V, LDO 3.3V), 5 GPIO pins with various functions (GPIO/IRQ/WAKE/PWM/ADC), built-in NeoPixel LED driver, Watchdog timer, RTC RAM, and I2C auto-sleep/wake feature.
+components/M5PM1/README.md:23:- examples/usb_interrupt_sleep/usb_interrupt_sleep.ino
+components/M5PM1/examples/neopixel/neopixel.ino:21: *     pm1.gpioSetFunc(M5PM1_GPIO_NUM_0, M5PM1_GPIO_FUNC_OTHER);
+components/M5PM1/examples/neopixel/neopixel.ino:22: *     pm1.gpioSetDrive(M5PM1_GPIO_NUM_0, M5PM1_GPIO_DRIVE_PUSHPULL);
+components/M5PM1/examples/neopixel/neopixel.ino:23: *     pm1.gpioSetOutput(M5PM1_GPIO_NUM_0, true);
+components/M5PM1/examples/neopixel/neopixel.ino:112:    pm1.gpioSetFunc(M5PM1_GPIO_NUM_0, M5PM1_GPIO_FUNC_OTHER);
+components/M5PM1/examples/neopixel/neopixel.ino:115:    pm1.gpioSetDrive(M5PM1_GPIO_NUM_0, M5PM1_GPIO_DRIVE_PUSHPULL);
+components/M5PM1/examples/neopixel/neopixel.ino:118:    pm1.gpioSetOutput(M5PM1_GPIO_NUM_0, true);
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:12: * USB Plug/Unplug Interrupt/Shutdown & Wake Demo.
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:21: * 1. Print wake source on startup.
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:23: * 3. When USB unplug (5VIN Remove) detected, shutdown after 5s countdown.
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:24: * 4. Set 10s timer wake up before shutdown, auto wake up after 10s.
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:62:static void printWakeSource(uint8_t src)
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:64:    LOGI("Wake source mask: 0x%02X", src);
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:74:static void enterSleep()
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:76:    LOGW("Prepare for shutdown...");
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:79:    // Configure 10s timer wake up first
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:83:    // Wait 5s before shutdown
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:85:        LOGW("Shutdown in %d s...", i);
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:94:    LOGW("Shutdown now. Wake by %us timer", WAKE_TIMER_SEC);
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:95:    pm1.shutdown();
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:104:    LOGI("USB Interrupt + Sleep demo start");
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:119:    // Read and clear wake source once for debugging this boot reason.
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:120:    uint8_t wakeSrc = 0;
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:121:    if (pm1.getWakeSource(&wakeSrc, M5PM1_CLEAN_ONCE) == M5PM1_OK) {
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:122:        printWakeSource(wakeSrc);
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:142:    pm1.gpioSetFunc(PM1_GPIO_IRQ_PIN, M5PM1_GPIO_FUNC_IRQ);
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:145:    // Setup ESP32 interrupt pin to receive IRQ signal from PM1.
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:147:    attachInterrupt(PM1_ESP_IRQ_GPIO, pm1_irq_handler, FALLING);
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:167:                    enterSleep();
+components/M5PM1/examples/basic_power_adc/basic_power_adc.ino:177:    pm1.gpioSetFunc(M5PM1_GPIO_NUM_1, M5PM1_GPIO_FUNC_OTHER);
+components/M5PM1/examples/basic_power_adc/basic_power_adc.ino:178:    pm1.gpioSetFunc(M5PM1_GPIO_NUM_2, M5PM1_GPIO_FUNC_OTHER);
+components/M5PM1/.git/hooks/pre-rebase.sample:25:	exit 0 ;# we do not interrupt rebasing detached HEAD
+components/M5PM1/.git/hooks/pre-rebase.sample:32:	exit 0 ;# we do not interrupt others.
+components/M5PM1/.git/hooks/pre-commit.sample:31:	test $(git diff-index --cached --name-only --diff-filter=A -z $against |
+Binary file components/M5PM1/.git/index matches
+components/M5PM1/src/M5PM1.cpp:149:    _autoWakeEnabled     = false;
+components/M5PM1/src/M5PM1.cpp:151:    _i2cSleepTime        = 0;
+components/M5PM1/src/M5PM1.cpp:153:    _i2cConfig.sleepTime = 0;
+components/M5PM1/src/M5PM1.cpp:303:    // Try to wake up the device - send I2C START signal
+components/M5PM1/src/M5PM1.cpp:313:        // Send wake signal again before retry
+components/M5PM1/src/M5PM1.cpp:330:            // Try to wake up the device - send I2C START signal
+components/M5PM1/src/M5PM1.cpp:344:    // Step 4: Configure device I2C (sleep off + target speed)
+components/M5PM1/src/M5PM1.cpp:400:    // Step 2: Send wake signal at 100KHz
+components/M5PM1/src/M5PM1.cpp:429:    // Step 4: Configure device I2C (disable sleep + target speed)
+components/M5PM1/src/M5PM1.cpp:526:    // Try to wake up the device
+components/M5PM1/src/M5PM1.cpp:536:        // Send wake signal again before retry
+components/M5PM1/src/M5PM1.cpp:561:            // Try to wake up the device
+components/M5PM1/src/M5PM1.cpp:578:    // Step 5: Configure device I2C (sleep off + target speed)
+components/M5PM1/src/M5PM1.cpp:643:    // Try to wake up the device
+components/M5PM1/src/M5PM1.cpp:676:            // Try to wake up the device
+components/M5PM1/src/M5PM1.cpp:690:    // Step 5: Configure device I2C (sleep off + target speed)
+components/M5PM1/src/M5PM1.cpp:772:    // Try to wake up the device
+components/M5PM1/src/M5PM1.cpp:782:        // Send wake signal again before retry
+components/M5PM1/src/M5PM1.cpp:805:            // Try to wake up the device
+components/M5PM1/src/M5PM1.cpp:820:    // Step 4: Configure device I2C (sleep off + target speed)
+components/M5PM1/src/M5PM1.cpp:885:    // Try to wake up the device
+components/M5PM1/src/M5PM1.cpp:895:        // Send wake signal again before retry
+components/M5PM1/src/M5PM1.cpp:917:            // Try to wake up the device
+components/M5PM1/src/M5PM1.cpp:932:    // Step 4: Configure device I2C (sleep off + target speed)
+components/M5PM1/src/M5PM1.cpp:990:    // Step 2: Send wake signal at 100KHz
+components/M5PM1/src/M5PM1.cpp:1020:    // Step 4: Configure device I2C (disable sleep + target speed)
+components/M5PM1/src/M5PM1.cpp:1133:bool M5PM1::_hasActiveWake(uint8_t pin)
+components/M5PM1/src/M5PM1.cpp:1136:    return _pinStatus[pin].func == M5PM1_GPIO_FUNC_WAKE || _pinStatus[pin].wake_en;
+components/M5PM1/src/M5PM1.cpp:1150:void M5PM1::_checkAutoWake()
+components/M5PM1/src/M5PM1.cpp:1152:    if (!_autoWakeEnabled || !_i2cConfigValid || _i2cConfig.sleepTime == 0) return;
+components/M5PM1/src/M5PM1.cpp:1157:    // If more than 1 second since last communication, send wake signal
+components/M5PM1/src/M5PM1.cpp:1159:        sendWakeSignal();
+components/M5PM1/src/M5PM1.cpp:1171:    _i2cConfig.sleepTime = cfg & M5PM1_I2C_CFG_SLEEP_MASK;
+components/M5PM1/src/M5PM1.cpp:1174:    _i2cSleepTime        = _i2cConfig.sleepTime;
+components/M5PM1/src/M5PM1.cpp:1180:    _i2cConfig.sleepTime = 0;
+components/M5PM1/src/M5PM1.cpp:1183:    _i2cSleepTime        = 0;
+components/M5PM1/src/M5PM1.cpp:1245:        _pinStatus[i].wake_en    = false;
+components/M5PM1/src/M5PM1.cpp:1246:        _pinStatus[i].wake_edge  = M5PM1_GPIO_WAKE_FALLING;
+components/M5PM1/src/M5PM1.cpp:1321:    uint8_t wakeEn  = 0;
+components/M5PM1/src/M5PM1.cpp:1322:    uint8_t wakeCfg = 0;
+components/M5PM1/src/M5PM1.cpp:1353:    if (!_readReg(M5PM1_REG_GPIO_WAKE_EN, &wakeEn)) {
+components/M5PM1/src/M5PM1.cpp:1357:    if (!_readReg(M5PM1_REG_GPIO_WAKE_CFG, &wakeCfg)) {
+components/M5PM1/src/M5PM1.cpp:1370:        _pinStatus[pin].wake_en    = (wakeEn & (1 << pin)) != 0;
+components/M5PM1/src/M5PM1.cpp:1371:        _pinStatus[pin].wake_edge  = (wakeCfg & (1 << pin)) ? M5PM1_GPIO_WAKE_RISING : M5PM1_GPIO_WAKE_FALLING;
+components/M5PM1/src/M5PM1.cpp:1595:    _checkAutoWake();
+components/M5PM1/src/M5PM1.cpp:1653:    _checkAutoWake();
+components/M5PM1/src/M5PM1.cpp:1711:    _checkAutoWake();
+components/M5PM1/src/M5PM1.cpp:1769:    _checkAutoWake();
+components/M5PM1/src/M5PM1.cpp:1827:    _checkAutoWake();
+components/M5PM1/src/M5PM1.cpp:1886:    _checkAutoWake();
+components/M5PM1/src/M5PM1.cpp:2092:    localErr = gpioSetFunc((m5pm1_gpio_num_t)pin, func);
+components/M5PM1/src/M5PM1.cpp:2098:    localErr = gpioSetMode((m5pm1_gpio_num_t)pin, gpioMode);
+components/M5PM1/src/M5PM1.cpp:2104:    localErr = gpioSetPull((m5pm1_gpio_num_t)pin, pull);
+components/M5PM1/src/M5PM1.cpp:2111:        localErr = gpioSetDrive((m5pm1_gpio_num_t)pin, drive);
+components/M5PM1/src/M5PM1.cpp:2137:    localErr = gpioSetOutput((m5pm1_gpio_num_t)pin, value);
+components/M5PM1/src/M5PM1.cpp:2157:    localErr      = gpioGetInput((m5pm1_gpio_num_t)pin, &value);
+components/M5PM1/src/M5PM1.cpp:2189:m5pm1_err_t M5PM1::gpioSet(m5pm1_gpio_num_t pin, m5pm1_gpio_mode_t mode, uint8_t value, m5pm1_gpio_pull_t pull,
+components/M5PM1/src/M5PM1.cpp:2198:    M5PM1_LOG_D(TAG_GPIO, "gpioSet: pin=%d mode=%d val=%d pull=%d drv=%d", pin, mode, value, pull, drive);
+components/M5PM1/src/M5PM1.cpp:2200:    m5pm1_err_t err = gpioSetFunc(pin, M5PM1_GPIO_FUNC_GPIO);
+components/M5PM1/src/M5PM1.cpp:2203:    err = gpioSetMode(pin, mode);
+components/M5PM1/src/M5PM1.cpp:2207:        err = gpioSetOutput(pin, value);
+components/M5PM1/src/M5PM1.cpp:2211:    err = gpioSetPull(pin, pull);
+components/M5PM1/src/M5PM1.cpp:2214:    err = gpioSetDrive(pin, drive);
+components/M5PM1/src/M5PM1.cpp:2220:m5pm1_err_t M5PM1::gpioSetFunc(m5pm1_gpio_num_t pin, m5pm1_gpio_func_t func)
+components/M5PM1/src/M5PM1.cpp:2242:m5pm1_err_t M5PM1::gpioSetMode(m5pm1_gpio_num_t pin, m5pm1_gpio_mode_t mode)
+components/M5PM1/src/M5PM1.cpp:2250:    M5PM1_LOG_D(TAG_GPIO, "gpioSetMode: pin=%d mode=%d", pin, mode);
+components/M5PM1/src/M5PM1.cpp:2266:m5pm1_err_t M5PM1::gpioSetOutput(m5pm1_gpio_num_t pin, uint8_t value)
+components/M5PM1/src/M5PM1.cpp:2274:    M5PM1_LOG_D(TAG_GPIO, "gpioSetOutput: pin=%d val=%s", pin, value ? "High" : "Low");
+components/M5PM1/src/M5PM1.cpp:2290:m5pm1_err_t M5PM1::gpioGetInput(m5pm1_gpio_num_t pin, uint8_t* value)
+components/M5PM1/src/M5PM1.cpp:2303:    M5PM1_LOG_D(TAG_GPIO, "gpioGetInput: pin=%d -> %d", pin, *value);
+components/M5PM1/src/M5PM1.cpp:2307:m5pm1_err_t M5PM1::gpioSetPull(m5pm1_gpio_num_t pin, m5pm1_gpio_pull_t pull)
+components/M5PM1/src/M5PM1.cpp:2315:    M5PM1_LOG_D(TAG_GPIO, "gpioSetPull: pin=%d pull=%d", pin, pull);
+components/M5PM1/src/M5PM1.cpp:2331:m5pm1_err_t M5PM1::gpioSetDrive(m5pm1_gpio_num_t pin, m5pm1_gpio_drive_t drive)
+components/M5PM1/src/M5PM1.cpp:2339:    M5PM1_LOG_D(TAG_GPIO, "gpioSetDrive: pin=%d drive=%d", pin, drive);
+components/M5PM1/src/M5PM1.cpp:2355:m5pm1_err_t M5PM1::gpioSetWakeEnable(m5pm1_gpio_num_t pin, bool enable)
+components/M5PM1/src/M5PM1.cpp:2363:    M5PM1_LOG_I(TAG_GPIO, "GPIO%d Wake %s", pin, enable ? "Enabled" : "Disabled");
+components/M5PM1/src/M5PM1.cpp:2369:        // GPIO1 does not support WAKE (shares interrupt line with SDA)
+components/M5PM1/src/M5PM1.cpp:2375:        // GPIO0/GPIO2 WAKE mutual exclusion (share interrupt line)
+components/M5PM1/src/M5PM1.cpp:2376:        if (pin == M5PM1_GPIO_NUM_0 && _hasActiveWake(M5PM1_GPIO_NUM_2)) {
+components/M5PM1/src/M5PM1.cpp:2380:        if (pin == M5PM1_GPIO_NUM_2 && _hasActiveWake(M5PM1_GPIO_NUM_0)) {
+components/M5PM1/src/M5PM1.cpp:2385:        // GPIO3/GPIO4 WAKE mutual exclusion (share interrupt line)
+components/M5PM1/src/M5PM1.cpp:2386:        if (pin == M5PM1_GPIO_NUM_3 && _hasActiveWake(M5PM1_GPIO_NUM_4)) {
+components/M5PM1/src/M5PM1.cpp:2390:        if (pin == M5PM1_GPIO_NUM_4 && _hasActiveWake(M5PM1_GPIO_NUM_3)) {
+components/M5PM1/src/M5PM1.cpp:2410:m5pm1_err_t M5PM1::gpioSetWakeEdge(m5pm1_gpio_num_t pin, m5pm1_gpio_wake_edge_t edge)
+components/M5PM1/src/M5PM1.cpp:2419:    // GPIO1 does not support wake edge configuration
+components/M5PM1/src/M5PM1.cpp:2421:        M5PM1_LOG_E(TAG_GPIO, "GPIO1 does not support wake edge configuration");
+components/M5PM1/src/M5PM1.cpp:2461:    uint8_t mode, out, in, drv, pupd0, pupd1, func0, func1, wakeEn, wakeCfg;
+components/M5PM1/src/M5PM1.cpp:2475:    if (!_readReg(M5PM1_REG_GPIO_WAKE_EN, &wakeEn)) return M5PM1_ERR_I2C_COMM;
+components/M5PM1/src/M5PM1.cpp:2476:    if (!_readReg(M5PM1_REG_GPIO_WAKE_CFG, &wakeCfg)) return M5PM1_ERR_I2C_COMM;
+components/M5PM1/src/M5PM1.cpp:2482:    M5PM1_LOG_I(TAG_GPIO, "WAKE_EN: 0x%02X  WAKE_CFG: 0x%02X", wakeEn, wakeCfg);
+components/M5PM1/src/M5PM1.cpp:2513:    uint8_t mode, out, drv, pupd0, pupd1, func0, func1, wakeEn, wakeCfg, holdCfg;
+components/M5PM1/src/M5PM1.cpp:2522:    if (!_readReg(M5PM1_REG_GPIO_WAKE_EN, &wakeEn)) return M5PM1_ERR_I2C_COMM;
+components/M5PM1/src/M5PM1.cpp:2523:    if (!_readReg(M5PM1_REG_GPIO_WAKE_CFG, &wakeCfg)) return M5PM1_ERR_I2C_COMM;
+components/M5PM1/src/M5PM1.cpp:2598:        bool actualWakeEn = (wakeEn & (1 << pin)) != 0;
+components/M5PM1/src/M5PM1.cpp:2599:        if (cached.wake_en != actualWakeEn) {
+components/M5PM1/src/M5PM1.cpp:2602:                M5PM1_LOG_W(TAG_GPIO, "GPIO%d WAKE_EN mismatch: cached=%d actual=%d", pin, cached.wake_en,
+components/M5PM1/src/M5PM1.cpp:2603:                            actualWakeEn);
+components/M5PM1/src/M5PM1.cpp:2608:        m5pm1_gpio_wake_edge_t actualWakeEdge =
+components/M5PM1/src/M5PM1.cpp:2609:            (wakeCfg & (1 << pin)) ? M5PM1_GPIO_WAKE_RISING : M5PM1_GPIO_WAKE_FALLING;
+components/M5PM1/src/M5PM1.cpp:2610:        if (cached.wake_edge != actualWakeEdge) {
+components/M5PM1/src/M5PM1.cpp:2613:                M5PM1_LOG_W(TAG_GPIO, "GPIO%d WAKE_EDGE mismatch: cached=%d actual=%d", pin, cached.wake_edge,
+components/M5PM1/src/M5PM1.cpp:2614:                            actualWakeEdge);
+components/M5PM1/src/M5PM1.cpp:2661:m5pm1_err_t M5PM1::gpioSetPowerHold(m5pm1_gpio_num_t pin, bool enable)
+components/M5PM1/src/M5PM1.cpp:2685:m5pm1_err_t M5PM1::gpioGetPowerHold(m5pm1_gpio_num_t pin, bool* enable)
+components/M5PM1/src/M5PM1.cpp:3247:// Wake Source Read
+components/M5PM1/src/M5PM1.cpp:3249:m5pm1_err_t M5PM1::getWakeSource(uint8_t* src, m5pm1_clean_type_t cleanType)
+components/M5PM1/src/M5PM1.cpp:3273:m5pm1_err_t M5PM1::clearWakeSource(uint8_t mask)
+components/M5PM1/src/M5PM1.cpp:3282:    uint8_t wake_src;
+components/M5PM1/src/M5PM1.cpp:3283:    if (!_readReg(M5PM1_REG_WAKE_SRC, &wake_src)) {
+components/M5PM1/src/M5PM1.cpp:3286:    uint8_t new_val = wake_src & ~mask;
+components/M5PM1/src/M5PM1.cpp:3710:    // Read GPIO interrupt status register
+components/M5PM1/src/M5PM1.cpp:3727:    // Clear interrupt based on cleanType
+components/M5PM1/src/M5PM1.cpp:3730:        // Clear current GPIO interrupt (write-0-to-clear mechanism)
+components/M5PM1/src/M5PM1.cpp:3737:        // Clear all GPIO interrupts
+components/M5PM1/src/M5PM1.cpp:3805:    // Read system interrupt status register
+components/M5PM1/src/M5PM1.cpp:3822:    // Clear interrupt based on cleanType
+components/M5PM1/src/M5PM1.cpp:3825:        // Clear current system interrupt (write-0-to-clear mechanism)
+components/M5PM1/src/M5PM1.cpp:3832:        // Clear all system interrupts
+components/M5PM1/src/M5PM1.cpp:3904:    // Read button interrupt status register
+components/M5PM1/src/M5PM1.cpp:3921:    // Clear interrupt based on cleanType
+components/M5PM1/src/M5PM1.cpp:3924:        // Clear current button interrupt (write-0-to-clear mechanism)
+components/M5PM1/src/M5PM1.cpp:3931:        // Clear all button interrupts
+components/M5PM1/src/M5PM1.cpp:4035:    // GPIO interrupt mask register valid bits are bit[4:0], 5 GPIOs total
+components/M5PM1/src/M5PM1.cpp:4135:    // System interrupt mask register valid bits are bit[5:0], 6 system events total
+components/M5PM1/src/M5PM1.cpp:4231:    // Button interrupt mask register valid bits are bit[2:0], 3 button events total
+components/M5PM1/src/M5PM1.cpp:4272:m5pm1_err_t M5PM1::shutdown()
+components/M5PM1/src/M5PM1.cpp:4274:    M5PM1_LOG_I(TAG_PWR, "Shutdown requested");
+components/M5PM1/src/M5PM1.cpp:4749:m5pm1_err_t M5PM1::setI2cConfig(uint8_t sleepTime, m5pm1_i2c_speed_t speed)
+components/M5PM1/src/M5PM1.cpp:4751:    if (sleepTime > 15) {
+components/M5PM1/src/M5PM1.cpp:4752:        M5PM1_LOG_E(TAG_I2C, "Invalid I2C sleep time: %u", sleepTime);
+components/M5PM1/src/M5PM1.cpp:4763:    uint8_t cfg = (sleepTime & M5PM1_I2C_CFG_SLEEP_MASK);
+components/M5PM1/src/M5PM1.cpp:4781:    uint8_t expectedSleep = sleepTime & M5PM1_I2C_CFG_SLEEP_MASK;
+components/M5PM1/src/M5PM1.cpp:4782:    uint8_t actualSleep   = actualCfg & M5PM1_I2C_CFG_SLEEP_MASK;
+components/M5PM1/src/M5PM1.cpp:4785:    if (actualSleep != expectedSleep || actualSpeed400k != (speed == M5PM1_I2C_SPEED_400K)) {
+components/M5PM1/src/M5PM1.cpp:4797:    _i2cConfig.sleepTime = sleepTime;
+components/M5PM1/src/M5PM1.cpp:4800:    _i2cSleepTime        = sleepTime;
+components/M5PM1/src/M5PM1.cpp:4802:    if (sleepTime > 0 && !_autoWakeEnabled) {
+components/M5PM1/src/M5PM1.cpp:4803:        setAutoWakeEnable(true);
+components/M5PM1/src/M5PM1.cpp:4804:        M5PM1_LOG_W(TAG_I2C, "I2C sleep enabled, auto-wake automatically enabled");
+components/M5PM1/src/M5PM1.cpp:4807:    M5PM1_LOG_I(TAG_I2C, "I2C config set and verified: sleep=%u, speed=%s", sleepTime,
+components/M5PM1/src/M5PM1.cpp:4835:m5pm1_err_t M5PM1::setI2cSleepTime(uint8_t seconds)
+components/M5PM1/src/M5PM1.cpp:4838:        M5PM1_LOG_E(TAG_I2C, "Invalid I2C sleep time: %u", seconds);
+components/M5PM1/src/M5PM1.cpp:4865:    uint8_t actualSleep = actualCfg & M5PM1_I2C_CFG_SLEEP_MASK;
+components/M5PM1/src/M5PM1.cpp:4866:    if (actualSleep != seconds) {
+components/M5PM1/src/M5PM1.cpp:4867:        M5PM1_LOG_E(TAG_I2C, "I2C_CFG sleep time verification failed: expected=%u, actual=%u", seconds, actualSleep);
+components/M5PM1/src/M5PM1.cpp:4871:    _i2cConfig.sleepTime = seconds;
+components/M5PM1/src/M5PM1.cpp:4873:    _i2cSleepTime        = seconds;
+components/M5PM1/src/M5PM1.cpp:4875:    M5PM1_LOG_I(TAG_I2C, "I2C sleep time set and verified to %u", seconds);
+components/M5PM1/src/M5PM1.cpp:4876:    if (seconds > 0 && !_autoWakeEnabled) {
+components/M5PM1/src/M5PM1.cpp:4877:        setAutoWakeEnable(true);
+components/M5PM1/src/M5PM1.cpp:4878:        M5PM1_LOG_W(TAG_I2C, "I2C sleep enabled, auto-wake automatically enabled");
+components/M5PM1/src/M5PM1.cpp:4883:m5pm1_err_t M5PM1::getI2cSleepTime(uint8_t* seconds)
+components/M5PM1/src/M5PM1.cpp:4886:        M5PM1_LOG_E(TAG_I2C, "getI2cSleepTime seconds is null");
+components/M5PM1/src/M5PM1.cpp:4899:    _i2cConfig.sleepTime = cfg & M5PM1_I2C_CFG_SLEEP_MASK;
+components/M5PM1/src/M5PM1.cpp:4901:    _i2cSleepTime        = _i2cConfig.sleepTime;
+components/M5PM1/src/M5PM1.cpp:4903:    *seconds = _i2cConfig.sleepTime;
+components/M5PM1/src/M5PM1.cpp:5129:// Auto Wake Feature
+components/M5PM1/src/M5PM1.cpp:5132:void M5PM1::setAutoWakeEnable(bool enable)
+components/M5PM1/src/M5PM1.cpp:5134:    _autoWakeEnabled = enable;
+components/M5PM1/src/M5PM1.cpp:5140:bool M5PM1::isAutoWakeEnabled() const
+components/M5PM1/src/M5PM1.cpp:5142:    return _autoWakeEnabled;
+components/M5PM1/src/M5PM1.cpp:5145:m5pm1_err_t M5PM1::sendWakeSignal()
+components/M5PM1/src/M5PM1.cpp:5349:            uint8_t expectedCfg = _i2cConfig.sleepTime & M5PM1_I2C_CFG_SLEEP_MASK;
+components/M5PM1/src/M5PM1.cpp:5448:            if (_hasActiveWake(pin)) {
+components/M5PM1/src/M5PM1.cpp:5467:            if (_hasActiveWake(pin)) {
+components/M5PM1/src/M5PM1.cpp:5475:            // GPIO1 does not support WAKE (shares interrupt line with SDA)
+components/M5PM1/src/M5PM1.cpp:5481:            // GPIO0/GPIO2 WAKE mutual exclusion (share interrupt line)
+components/M5PM1/src/M5PM1.cpp:5482:            if (pin == M5PM1_GPIO_NUM_0 && _hasActiveWake(M5PM1_GPIO_NUM_2)) {
+components/M5PM1/src/M5PM1.cpp:5487:            if (pin == M5PM1_GPIO_NUM_2 && _hasActiveWake(M5PM1_GPIO_NUM_0)) {
+components/M5PM1/src/M5PM1.cpp:5493:            // GPIO3/GPIO4 WAKE mutual exclusion (share interrupt line)
+components/M5PM1/src/M5PM1.cpp:5494:            if (pin == M5PM1_GPIO_NUM_3 && _hasActiveWake(M5PM1_GPIO_NUM_4)) {
+components/M5PM1/src/M5PM1.cpp:5499:            if (pin == M5PM1_GPIO_NUM_4 && _hasActiveWake(M5PM1_GPIO_NUM_3)) {
+components/M5PM1/src/M5PM1.cpp:5535:            if (_hasActiveWake(pin)) {
+components/M5PM1/src/M5PM1.cpp:5550:            if (_hasActiveWake(pin)) {
+components/M5PM1/src/M5PM1.cpp:5565:            if (_hasActiveWake(pin)) {
+components/M5PM1/src/M5PM1_i2c_compat.h:114:// Wake signal for PM1 sleep mode
+components/M5PM1/src/M5PM1_i2c_compat.h:118:    // Send START signal to generate SDA falling edge for PM1 wake
+components/M5PM1/src/M5PM1_i2c_compat.h:119:    // PM1 uses SDA pin (PB4) falling edge to trigger EXTI4 interrupt for wakeup
+components/M5PM1/src/M5PM1_i2c_compat.h:201:// Generate I2C START signal to wake PM1 from sleep
+components/M5PM1/src/M5PM1_i2c_compat.h:460:// Wake signal for PM1 sleep mode (i2c_bus)
+components/M5PM1/src/M5PM1_i2c_compat.h:550:// 唤醒信号发送 (Legacy) / Wake signal send (Legacy)
+components/M5PM1/src/M5PM1_i2c_compat.h:557:    // Ignore error: device may be asleep during wake
+components/M5PM1/src/M5PM1_i2c_compat.h:643:// Wake signal for PM1 sleep mode (i2c_master)
+components/M5PM1/src/M5PM1_i2c_compat.h:723:// Generate I2C START signal to wake PM1 from sleep
+components/M5PM1/src/M5PM1.h:20: *       - RTC RAM（32字节，睡眠保持） / RTC RAM (32 bytes, retained in sleep)
+components/M5PM1/src/M5PM1.h:21: *       - I2C自动睡眠/唤醒功能 / I2C auto-sleep/wake feature
+components/M5PM1/src/M5PM1.h:78:#define M5PM1_RTC_RAM_SIZE     32    // RTC RAM大小（睡眠保持） / RTC RAM size in bytes (retained in sleep)
+components/M5PM1/src/M5PM1.h:112:    0x05  // R/W   [6:0] 唤醒源标志（写0清除） / Wake source flags (write 0 to clear)
+components/M5PM1/src/M5PM1.h:113:          //       [6] 5VINOUT插入唤醒 / 5VINOUT insertion wake
+components/M5PM1/src/M5PM1.h:114:          //       [5] 外部GPIO唤醒 / External GPIO wake
+components/M5PM1/src/M5PM1.h:115:          //       [4] 命令复位唤醒 / Command reset wake
+components/M5PM1/src/M5PM1.h:116:          //       [3] 复位按钮唤醒 / Reset button wake
+components/M5PM1/src/M5PM1.h:117:          //       [2] 电源按钮唤醒 / Power button wake
+components/M5PM1/src/M5PM1.h:118:          //       [1] VIN插入唤醒 / VIN insertion wake
+components/M5PM1/src/M5PM1.h:119:          //       [0] 定时器唤醒 / Timer wake
+components/M5PM1/src/M5PM1.h:146:          //       注意：复位/下载模式/关机时自动清零为0x00 / Note: Auto-clears to 0x00 on reset/download/shutdown
+components/M5PM1/src/M5PM1.h:158:          //       [3:0] SLP_TO - I2C睡眠超时(秒): 0=禁用 1-15=1-15秒 / SLP_TO - I2C sleep timeout (s): 0=disabled,
+components/M5PM1/src/M5PM1.h:159:          //       1-15=1-15s 注意：I2C空闲超时后PM1进入睡眠模式 / Note: PM1 enters sleep after I2C idle timeout
+components/M5PM1/src/M5PM1.h:174:          //             CMD - 00:no-op 01:shutdown 10:reboot 11:download mode
+components/M5PM1/src/M5PM1.h:215:    0x18  // R/W   [4:0] GPIO唤醒使能 / GPIO wake enable
+components/M5PM1/src/M5PM1.h:216:          //       每bit使能对应GPIO的唤醒功能 / Each bit enables wake function for corresponding GPIO
+components/M5PM1/src/M5PM1.h:218:    0x19  // R/W   [4:0] GPIO唤醒边沿配置 / GPIO wake edge config
+components/M5PM1/src/M5PM1.h:272:          //             ACTION: 000=stop, 001=flag, 010=reboot, 011=power on, 100=shutdown
+components/M5PM1/src/M5PM1.h:279:    0x40  // R/W   [4:0] GPIO中断状态 / GPIO interrupt status
+components/M5PM1/src/M5PM1.h:282:    0x41  // R/W   系统中断状态 / System interrupt status
+components/M5PM1/src/M5PM1.h:293:    0x42  // R/W   按钮中断状态 / Button interrupt status
+components/M5PM1/src/M5PM1.h:296:          //       [1] 唤醒事件 / Wakeup event
+components/M5PM1/src/M5PM1.h:299:    0x43  // R/W   GPIO中断屏蔽 / GPIO interrupt mask
+components/M5PM1/src/M5PM1.h:300:          //       [4:0] 每bit: 0=使能中断 1=屏蔽中断 / [4:0] Each bit: 0=enable interrupt, 1=mask interrupt
+components/M5PM1/src/M5PM1.h:301:#define M5PM1_REG_IRQ_MASK2 0x44  // R/W   系统中断屏蔽 / System interrupt mask
+components/M5PM1/src/M5PM1.h:302:#define M5PM1_REG_IRQ_MASK3 0x45  // R/W   按钮中断屏蔽 / Button interrupt mask
+components/M5PM1/src/M5PM1.h:328:          //           DOUBLE_OFF_DIS - double-click shutdown disable: 0=enable, 1=disable
+components/M5PM1/src/M5PM1.h:357:          //       Data retained during sleep, for storing small important data
+components/M5PM1/src/M5PM1.h:367:    0x0F  // I2C睡眠超时掩码 / I2C sleep timeout mask
+components/M5PM1/src/M5PM1.h:376:#define M5PM1_SYS_CMD_SHUTDOWN 0x01  // 关机命令 / Shutdown command
+components/M5PM1/src/M5PM1.h:442:                                  // Interrupt trigger function
+components/M5PM1/src/M5PM1.h:444:                                  // Wake function
+components/M5PM1/src/M5PM1.h:472: * @brief GPIO唤醒边沿配置 / GPIO wake edge configuration
+components/M5PM1/src/M5PM1.h:476:                                  // Wake on falling edge
+components/M5PM1/src/M5PM1.h:478:                                  // Wake on rising edge
+components/M5PM1/src/M5PM1.h:479:} m5pm1_gpio_wake_edge_t;
+components/M5PM1/src/M5PM1.h:522: * @brief 唤醒源标志 / Wake source flags
+components/M5PM1/src/M5PM1.h:528:                                     // Timer wake
+components/M5PM1/src/M5PM1.h:530:                                     // VIN insertion wake
+components/M5PM1/src/M5PM1.h:532:                                     // Power button wake
+components/M5PM1/src/M5PM1.h:534:                                     // Reset button wake
+components/M5PM1/src/M5PM1.h:536:                                     // Command reset wake
+components/M5PM1/src/M5PM1.h:538:                                     // External GPIO wake
+components/M5PM1/src/M5PM1.h:540:                                     // 5VINOUT insertion wake
+components/M5PM1/src/M5PM1.h:541:} m5pm1_wake_src_t;
+components/M5PM1/src/M5PM1.h:552:                                 // Shutdown
+components/M5PM1/src/M5PM1.h:622:                                    // Don't mask (Enable interrupt)
+components/M5PM1/src/M5PM1.h:624:                                    // Mask interrupt (Disable interrupt)
+components/M5PM1/src/M5PM1.h:708: * @note 用于 getWakeSource(), irqGetGpioStatus(), irqGetSysStatus(), irqGetBtnStatus()
+components/M5PM1/src/M5PM1.h:709: *       Used for getWakeSource(), irqGetGpioStatus(), irqGetSysStatus(), irqGetBtnStatus()
+components/M5PM1/src/M5PM1.h:726: *        GPIO interrupt flag bits
+components/M5PM1/src/M5PM1.h:732:                                 // GPIO0 interrupt flag
+components/M5PM1/src/M5PM1.h:734:                                 // GPIO1 interrupt flag
+components/M5PM1/src/M5PM1.h:736:                                 // GPIO2 interrupt flag
+components/M5PM1/src/M5PM1.h:738:                                 // GPIO3 interrupt flag
+components/M5PM1/src/M5PM1.h:740:                                 // GPIO4 interrupt flag
+components/M5PM1/src/M5PM1.h:742:                                 // All GPIO interrupt flags
+components/M5PM1/src/M5PM1.h:744:                                 // No interrupt
+components/M5PM1/src/M5PM1.h:749: *        Button interrupt status bitmask
+components/M5PM1/src/M5PM1.h:757:                                      // Wakeup event
+components/M5PM1/src/M5PM1.h:761:                                      // All button interrupt flags
+components/M5PM1/src/M5PM1.h:763:                                      // No interrupt
+components/M5PM1/src/M5PM1.h:772: *        System interrupt flag bits
+components/M5PM1/src/M5PM1.h:790:                                              // All system interrupt flags
+components/M5PM1/src/M5PM1.h:792:                                              // No interrupt
+components/M5PM1/src/M5PM1.h:825: * @note 用于 gpioSetOutput()
+components/M5PM1/src/M5PM1.h:826: *       Used for gpioSetOutput()
+components/M5PM1/src/M5PM1.h:905:    bool wake_en;                      ///< 唤醒使能 / Wake enabled
+components/M5PM1/src/M5PM1.h:906:    m5pm1_gpio_wake_edge_t wake_edge;  ///< 唤醒边沿 / Wake edge (RISING/FALLING)
+components/M5PM1/src/M5PM1.h:1284:    m5pm1_err_t gpioSet(m5pm1_gpio_num_t pin, m5pm1_gpio_mode_t mode, uint8_t value, m5pm1_gpio_pull_t pull,
+components/M5PM1/src/M5PM1.h:1299:    m5pm1_err_t gpioSetFunc(m5pm1_gpio_num_t pin, m5pm1_gpio_func_t func);
+components/M5PM1/src/M5PM1.h:1311:    m5pm1_err_t gpioSetMode(m5pm1_gpio_num_t pin, m5pm1_gpio_mode_t mode);
+components/M5PM1/src/M5PM1.h:1325:    m5pm1_err_t gpioSetOutput(m5pm1_gpio_num_t pin, uint8_t value);
+components/M5PM1/src/M5PM1.h:1337:    m5pm1_err_t gpioGetInput(m5pm1_gpio_num_t pin, uint8_t* value);
+components/M5PM1/src/M5PM1.h:1349:    m5pm1_err_t gpioSetPull(m5pm1_gpio_num_t pin, m5pm1_gpio_pull_t pull);
+components/M5PM1/src/M5PM1.h:1361:    m5pm1_err_t gpioSetDrive(m5pm1_gpio_num_t pin, m5pm1_gpio_drive_t drive);
+components/M5PM1/src/M5PM1.h:1365:     *        Set GPIO wake enable
+components/M5PM1/src/M5PM1.h:1369:     *               true to enable wake, false to disable
+components/M5PM1/src/M5PM1.h:1373:     *       Wake function is used to wake device from sleep mode
+components/M5PM1/src/M5PM1.h:1375:    m5pm1_err_t gpioSetWakeEnable(m5pm1_gpio_num_t pin, bool enable);
+components/M5PM1/src/M5PM1.h:1379:     *        Set GPIO wake edge
+components/M5PM1/src/M5PM1.h:1383:     *             Wake edge: M5PM1_GPIO_WAKE_FALLING / RISING
+components/M5PM1/src/M5PM1.h:1387:    m5pm1_err_t gpioSetWakeEdge(m5pm1_gpio_num_t pin, m5pm1_gpio_wake_edge_t edge);
+components/M5PM1/src/M5PM1.h:1446:     *       When enabled, the GPIO will remain powered even if power-off button is pressed
+components/M5PM1/src/M5PM1.h:1448:    m5pm1_err_t gpioSetPowerHold(m5pm1_gpio_num_t pin, bool enable);
+components/M5PM1/src/M5PM1.h:1460:    m5pm1_err_t gpioGetPowerHold(m5pm1_gpio_num_t pin, bool* enable);
+components/M5PM1/src/M5PM1.h:1470:     *       When enabled, LDO 3.3V will remain powered even if power-off button is pressed
+components/M5PM1/src/M5PM1.h:1492:     *       When enabled, DCDC 5V will remain powered even if power-off button is pressed
+components/M5PM1/src/M5PM1.h:1769:     *        Read wake source
+components/M5PM1/src/M5PM1.h:1771:     *            Output: wake source bitmask
+components/M5PM1/src/M5PM1.h:1777:     *                  - M5PM1_CLEAN_ONCE: Clear wake source bits read this time
+components/M5PM1/src/M5PM1.h:1779:     *                  - M5PM1_CLEAN_ALL: Clear all wake source bits
+components/M5PM1/src/M5PM1.h:1783:    m5pm1_err_t getWakeSource(uint8_t* src, m5pm1_clean_type_t cleanType = M5PM1_CLEAN_NONE);
+components/M5PM1/src/M5PM1.h:1787:     *        Clear wake source flags
+components/M5PM1/src/M5PM1.h:1789:     *             Wake source bitmask to clear
+components/M5PM1/src/M5PM1.h:1793:    m5pm1_err_t clearWakeSource(uint8_t mask);
+components/M5PM1/src/M5PM1.h:2026:     *        Set double click power-off function disable
+components/M5PM1/src/M5PM1.h:2028:     *                true=disable double click power-off, false=enable double click power-off
+components/M5PM1/src/M5PM1.h:2032:     *       After disabling, double click will not trigger system power-off
+components/M5PM1/src/M5PM1.h:2038:     *        Get double click power-off function disable state
+components/M5PM1/src/M5PM1.h:2052:     *        Read GPIO interrupt status
+components/M5PM1/src/M5PM1.h:2070:     *        Read GPIO interrupt status (returns enum, user-friendly)
+components/M5PM1/src/M5PM1.h:2080:     *                  - M5PM1_CLEAN_ALL: Clean all GPIO interrupts
+components/M5PM1/src/M5PM1.h:2086:     *       Use M5PM1_CLEAN_ONCE to handle multiple interrupts one by one
+components/M5PM1/src/M5PM1.h:2088:     *       Returns M5PM1_IRQ_GPIO_NONE if no interrupt
+components/M5PM1/src/M5PM1.h:2094:     *        Clear all GPIO interrupt status
+components/M5PM1/src/M5PM1.h:2102:     *        Read system interrupt status
+components/M5PM1/src/M5PM1.h:2120:     *        Read system interrupt status (returns enum, user-friendly)
+components/M5PM1/src/M5PM1.h:2130:     *                  - M5PM1_CLEAN_ALL: Clean all system interrupts
+components/M5PM1/src/M5PM1.h:2136:     *       Use M5PM1_CLEAN_ONCE to handle multiple interrupts one by one
+components/M5PM1/src/M5PM1.h:2138:     *       Returns M5PM1_IRQ_SYS_NONE if no interrupt
+components/M5PM1/src/M5PM1.h:2144:     *        Clear all system interrupt status
+components/M5PM1/src/M5PM1.h:2152:     *        Read button interrupt status
+components/M5PM1/src/M5PM1.h:2170:     *        Read button interrupt status (returns enum, user-friendly)
+components/M5PM1/src/M5PM1.h:2180:     *                  - M5PM1_CLEAN_ALL: Clean all button interrupts
+components/M5PM1/src/M5PM1.h:2186:     *       Use M5PM1_CLEAN_ONCE to handle multiple interrupts one by one
+components/M5PM1/src/M5PM1.h:2188:     *       Returns M5PM1_IRQ_BTN_NONE if no interrupt
+components/M5PM1/src/M5PM1.h:2194:     *        Clear all button interrupt status
+components/M5PM1/src/M5PM1.h:2201:     * @brief Set single GPIO pin interrupt mask
+components/M5PM1/src/M5PM1.h:2212:     *        Get single GPIO pin interrupt mask state
+components/M5PM1/src/M5PM1.h:2214:     *             GPIO interrupt flag (M5PM1_IRQ_GPIO0 ~ M5PM1_IRQ_GPIO4)
+components/M5PM1/src/M5PM1.h:2226:     * @brief 一次性设置所有 GPIO 中断屏蔽 / Set all GPIO interrupt mask at once
+components/M5PM1/src/M5PM1.h:2236:     *        Get all GPIO interrupt mask state
+components/M5PM1/src/M5PM1.h:2245:     * @brief Set single system event interrupt mask
+components/M5PM1/src/M5PM1.h:2259:     *        Get single system event interrupt mask state
+components/M5PM1/src/M5PM1.h:2273:     * @brief 一次性设置所有系统中断屏蔽 / Set all system interrupt mask at once
+components/M5PM1/src/M5PM1.h:2283:     *        Get all system interrupt mask state
+components/M5PM1/src/M5PM1.h:2292:     * @brief Set single button event interrupt mask
+components/M5PM1/src/M5PM1.h:2306:     *        Get single button event interrupt mask state
+components/M5PM1/src/M5PM1.h:2320:     * @brief 一次性设置所有按钮中断屏蔽 / Set all button interrupt mask at once
+components/M5PM1/src/M5PM1.h:2329:     *        Get all button interrupt mask state
+components/M5PM1/src/M5PM1.h:2352:     *        Request shutdown
+components/M5PM1/src/M5PM1.h:2356:    m5pm1_err_t shutdown();
+components/M5PM1/src/M5PM1.h:2572:     *       RTC RAM has 32 bytes total, data persists during power-off and sleep
+components/M5PM1/src/M5PM1.h:2588:     *       RTC RAM has 32 bytes total, data persists during power-off and sleep
+components/M5PM1/src/M5PM1.h:2598:     *        Configure I2C parameters (sleep time and speed)
+components/M5PM1/src/M5PM1.h:2599:     * @param sleepTime I2C 睡眠时间（秒），超时后进入低功耗模式
+components/M5PM1/src/M5PM1.h:2600:     *                  I2C sleep time (seconds), enter low power mode after timeout
+components/M5PM1/src/M5PM1.h:2608:    m5pm1_err_t setI2cConfig(uint8_t sleepTime, m5pm1_i2c_speed_t speed = M5PM1_I2C_SPEED_100K);
+components/M5PM1/src/M5PM1.h:2634:     *        Set I2C sleep time
+components/M5PM1/src/M5PM1.h:2636:     *                Sleep time (seconds), enter low power mode after timeout
+components/M5PM1/src/M5PM1.h:2640:    m5pm1_err_t setI2cSleepTime(uint8_t seconds);
+components/M5PM1/src/M5PM1.h:2644:     *        Get I2C sleep time
+components/M5PM1/src/M5PM1.h:2646:     *                Output parameter, stores sleep time (seconds)
+components/M5PM1/src/M5PM1.h:2650:    m5pm1_err_t getI2cSleepTime(uint8_t* seconds);
+components/M5PM1/src/M5PM1.h:2654:    // Auto Wake Feature
+components/M5PM1/src/M5PM1.h:2658:     *        Enable/disable automatic wake signal before I2C operations
+components/M5PM1/src/M5PM1.h:2659:     * @param enable true to enable auto-wake, false to disable
+components/M5PM1/src/M5PM1.h:2662:     *       When PM1 enters sleep mode (I2C sleep timeout), it needs a
+components/M5PM1/src/M5PM1.h:2663:     *       START signal on SDA to wake up. This feature automatically
+components/M5PM1/src/M5PM1.h:2664:     *       sends the wake signal when needed.
+components/M5PM1/src/M5PM1.h:2669:     *       can wake the device. Enable this for guaranteed reliability.
+components/M5PM1/src/M5PM1.h:2671:    void setAutoWakeEnable(bool enable);
+components/M5PM1/src/M5PM1.h:2674:     * @brief 检查自动唤醒是否启用 / Check if auto wake is enabled
+components/M5PM1/src/M5PM1.h:2677:    bool isAutoWakeEnabled() const;
+components/M5PM1/src/M5PM1.h:2680:     * @brief 手动发送唤醒信号到 PM1 / Manually send wake signal to PM1
+components/M5PM1/src/M5PM1.h:2683:    m5pm1_err_t sendWakeSignal();
+components/M5PM1/src/M5PM1.h:2806:     *        Get cached interrupt mask state
+components/M5PM1/src/M5PM1.h:2819:     *        Get cached interrupt status
+components/M5PM1/src/M5PM1.h:2836:    bool _autoWakeEnabled;
+components/M5PM1/src/M5PM1.h:2838:    uint8_t _i2cSleepTime;
+components/M5PM1/src/M5PM1.h:2841:        uint8_t sleepTime;
+components/M5PM1/src/M5PM1.h:2976:    bool _hasActiveWake(uint8_t pin);
+components/M5PM1/src/M5PM1.h:2979:    void _checkAutoWake();
+
+================================================================
+M5PM1 PMG0-specific implementation references
+================================================================
+
+$ grep -R M5PM1_GPIO_NUM_0\|GPIO_NUM_0\|_hasActiveWake\|conflicting_pin\|active.*wake\|wake.*active -n components/M5PM1
+components/M5PM1/examples/gpio_pwm/gpio_pwm.ino:46:static const m5pm1_gpio_num_t GPIO_OUT  = M5PM1_GPIO_NUM_0;
+components/M5PM1/examples/neopixel/neopixel.ino:21: *     pm1.gpioSetFunc(M5PM1_GPIO_NUM_0, M5PM1_GPIO_FUNC_OTHER);
+components/M5PM1/examples/neopixel/neopixel.ino:22: *     pm1.gpioSetDrive(M5PM1_GPIO_NUM_0, M5PM1_GPIO_DRIVE_PUSHPULL);
+components/M5PM1/examples/neopixel/neopixel.ino:23: *     pm1.gpioSetOutput(M5PM1_GPIO_NUM_0, true);
+components/M5PM1/examples/neopixel/neopixel.ino:26: *     pm1.pinMode(M5PM1_GPIO_NUM_0, M5PM1_OTHER);
+components/M5PM1/examples/neopixel/neopixel.ino:112:    pm1.gpioSetFunc(M5PM1_GPIO_NUM_0, M5PM1_GPIO_FUNC_OTHER);
+components/M5PM1/examples/neopixel/neopixel.ino:115:    pm1.gpioSetDrive(M5PM1_GPIO_NUM_0, M5PM1_GPIO_DRIVE_PUSHPULL);
+components/M5PM1/examples/neopixel/neopixel.ino:118:    pm1.gpioSetOutput(M5PM1_GPIO_NUM_0, true);
+components/M5PM1/examples/neopixel/neopixel.ino:123:    pm1.pinMode(M5PM1_GPIO_NUM_0, M5PM1_OTHER);
+components/M5PM1/src/M5PM1.cpp:182:    _aw8737aPin         = M5PM1_GPIO_NUM_0;
+components/M5PM1/src/M5PM1.cpp:1098:    return (pin == M5PM1_GPIO_NUM_0);
+components/M5PM1/src/M5PM1.cpp:1133:bool M5PM1::_hasActiveWake(uint8_t pin)
+components/M5PM1/src/M5PM1.cpp:1227:    _aw8737aPin        = M5PM1_GPIO_NUM_0;
+components/M5PM1/src/M5PM1.cpp:2376:        if (pin == M5PM1_GPIO_NUM_0 && _hasActiveWake(M5PM1_GPIO_NUM_2)) {
+components/M5PM1/src/M5PM1.cpp:2380:        if (pin == M5PM1_GPIO_NUM_2 && _hasActiveWake(M5PM1_GPIO_NUM_0)) {
+components/M5PM1/src/M5PM1.cpp:2386:        if (pin == M5PM1_GPIO_NUM_3 && _hasActiveWake(M5PM1_GPIO_NUM_4)) {
+components/M5PM1/src/M5PM1.cpp:2390:        if (pin == M5PM1_GPIO_NUM_4 && _hasActiveWake(M5PM1_GPIO_NUM_3)) {
+components/M5PM1/src/M5PM1.cpp:5448:            if (_hasActiveWake(pin)) {
+components/M5PM1/src/M5PM1.cpp:5467:            if (_hasActiveWake(pin)) {
+components/M5PM1/src/M5PM1.cpp:5482:            if (pin == M5PM1_GPIO_NUM_0 && _hasActiveWake(M5PM1_GPIO_NUM_2)) {
+components/M5PM1/src/M5PM1.cpp:5484:                result.conflicting_pin = M5PM1_GPIO_NUM_2;
+components/M5PM1/src/M5PM1.cpp:5487:            if (pin == M5PM1_GPIO_NUM_2 && _hasActiveWake(M5PM1_GPIO_NUM_0)) {
+components/M5PM1/src/M5PM1.cpp:5489:                result.conflicting_pin = M5PM1_GPIO_NUM_0;
+components/M5PM1/src/M5PM1.cpp:5494:            if (pin == M5PM1_GPIO_NUM_3 && _hasActiveWake(M5PM1_GPIO_NUM_4)) {
+components/M5PM1/src/M5PM1.cpp:5496:                result.conflicting_pin = M5PM1_GPIO_NUM_4;
+components/M5PM1/src/M5PM1.cpp:5499:            if (pin == M5PM1_GPIO_NUM_4 && _hasActiveWake(M5PM1_GPIO_NUM_3)) {
+components/M5PM1/src/M5PM1.cpp:5501:                result.conflicting_pin = M5PM1_GPIO_NUM_3;
+components/M5PM1/src/M5PM1.cpp:5535:            if (_hasActiveWake(pin)) {
+components/M5PM1/src/M5PM1.cpp:5550:            if (_hasActiveWake(pin)) {
+components/M5PM1/src/M5PM1.cpp:5565:            if (_hasActiveWake(pin)) {
+components/M5PM1/src/M5PM1.h:404:    M5PM1_GPIO_NUM_0 = 0,    // GPIO0 (可用于LED_EN)
+components/M5PM1/src/M5PM1.h:950:    uint8_t conflicting_pin;
+components/M5PM1/src/M5PM1.h:2976:    bool _hasActiveWake(uint8_t pin);
+
+================================================================
+M5PM1 wake conflict rules around _hasActiveWake
+================================================================
+
+$ grep -n _hasActiveWake\|conflicting_pin\|M5PM1_GPIO_NUM_0\|M5PM1_GPIO_NUM_2\|M5PM1_GPIO_NUM_3\|M5PM1_GPIO_NUM_4 components/M5PM1/src/M5PM1.cpp
+182:    _aw8737aPin         = M5PM1_GPIO_NUM_0;
+1088:    return (pin == M5PM1_GPIO_NUM_1 || pin == M5PM1_GPIO_NUM_2);
+1093:    return (pin == M5PM1_GPIO_NUM_3 || pin == M5PM1_GPIO_NUM_4);
+1098:    return (pin == M5PM1_GPIO_NUM_0);
+1108:    if (pin == M5PM1_GPIO_NUM_2) {
+1118:    if (pin == M5PM1_GPIO_NUM_3) {
+1121:    if (pin == M5PM1_GPIO_NUM_4) {
+1133:bool M5PM1::_hasActiveWake(uint8_t pin)
+1227:    _aw8737aPin        = M5PM1_GPIO_NUM_0;
+2376:        if (pin == M5PM1_GPIO_NUM_0 && _hasActiveWake(M5PM1_GPIO_NUM_2)) {
+2380:        if (pin == M5PM1_GPIO_NUM_2 && _hasActiveWake(M5PM1_GPIO_NUM_0)) {
+2386:        if (pin == M5PM1_GPIO_NUM_3 && _hasActiveWake(M5PM1_GPIO_NUM_4)) {
+2390:        if (pin == M5PM1_GPIO_NUM_4 && _hasActiveWake(M5PM1_GPIO_NUM_3)) {
+3110:    uint8_t pin = (channel == M5PM1_PWM_CH_0) ? M5PM1_GPIO_NUM_3 : M5PM1_GPIO_NUM_4;
+5448:            if (_hasActiveWake(pin)) {
+5467:            if (_hasActiveWake(pin)) {
+5482:            if (pin == M5PM1_GPIO_NUM_0 && _hasActiveWake(M5PM1_GPIO_NUM_2)) {
+5484:                result.conflicting_pin = M5PM1_GPIO_NUM_2;
+5487:            if (pin == M5PM1_GPIO_NUM_2 && _hasActiveWake(M5PM1_GPIO_NUM_0)) {
+5489:                result.conflicting_pin = M5PM1_GPIO_NUM_0;
+5494:            if (pin == M5PM1_GPIO_NUM_3 && _hasActiveWake(M5PM1_GPIO_NUM_4)) {
+5496:                result.conflicting_pin = M5PM1_GPIO_NUM_4;
+5499:            if (pin == M5PM1_GPIO_NUM_4 && _hasActiveWake(M5PM1_GPIO_NUM_3)) {
+5501:                result.conflicting_pin = M5PM1_GPIO_NUM_3;
+5535:            if (_hasActiveWake(pin)) {
+5550:            if (_hasActiveWake(pin)) {
+5565:            if (_hasActiveWake(pin)) {
+
+================================================================
+M5PM1 GPIO API declarations around header
+================================================================
+
+$ grep -n gpioSet\|gpioGet\|Wake\|wake\|sleep\|Sleep\|power\|Power\|interrupt\|Interrupt\|latch\|filter components/M5PM1/src/M5PM1.h
+10: *        M5Stack PM1 Power Management IC Driver Library (Dual-Platform: ESP-IDF & Arduino)
+13: *       PM1 is a multi-function power management IC supporting:
+15: *       - 多路电源轨（DCDC 5V，LDO 3.3V, BOOST 5V） / Multiple power rails (DCDC 5V, LDO 3.3V, BOOST 5V)
+20: *       - RTC RAM（32字节，睡眠保持） / RTC RAM (32 bytes, retained in sleep)
+21: *       - I2C自动睡眠/唤醒功能 / I2C auto-sleep/wake feature
+78:#define M5PM1_RTC_RAM_SIZE     32    // RTC RAM大小（睡眠保持） / RTC RAM size in bytes (retained in sleep)
+105:// ---- Power Status Registers ----
+107:    0x04  // R     [2:0] 当前供电源 / Power source
+112:    0x05  // R/W   [6:0] 唤醒源标志（写0清除） / Wake source flags (write 0 to clear)
+113:          //       [6] 5VINOUT插入唤醒 / 5VINOUT insertion wake
+114:          //       [5] 外部GPIO唤醒 / External GPIO wake
+115:          //       [4] 命令复位唤醒 / Command reset wake
+116:          //       [3] 复位按钮唤醒 / Reset button wake
+117:          //       [2] 电源按钮唤醒 / Power button wake
+118:          //       [1] VIN插入唤醒 / VIN insertion wake
+119:          //       [0] 定时器唤醒 / Timer wake
+122:// ---- Power Configuration ----
+127:          //           BOOST_EN - BOOST/GROVE(5VINOUT) power enable (hardware dependent)
+136:    0x07  // R/W   电源保持配置 / Power hold configuration
+139:          //           BOOST/GROVE(5VINOUT) power hold (hardware dependent)
+140:          //       [5] LDO(3.3V)电源保持 / LDO(3.3V) power hold
+158:          //       [3:0] SLP_TO - I2C睡眠超时(秒): 0=禁用 1-15=1-15秒 / SLP_TO - I2C sleep timeout (s): 0=disabled,
+159:          //       1-15=1-15s 注意：I2C空闲超时后PM1进入睡眠模式 / Note: PM1 enters sleep after I2C idle timeout
+215:    0x18  // R/W   [4:0] GPIO唤醒使能 / GPIO wake enable
+216:          //       每bit使能对应GPIO的唤醒功能 / Each bit enables wake function for corresponding GPIO
+218:    0x19  // R/W   [4:0] GPIO唤醒边沿配置 / GPIO wake edge config
+272:          //             ACTION: 000=stop, 001=flag, 010=reboot, 011=power on, 100=shutdown
+279:    0x40  // R/W   [4:0] GPIO中断状态 / GPIO interrupt status
+282:    0x41  // R/W   系统中断状态 / System interrupt status
+293:    0x42  // R/W   按钮中断状态 / Button interrupt status
+296:          //       [1] 唤醒事件 / Wakeup event
+299:    0x43  // R/W   GPIO中断屏蔽 / GPIO interrupt mask
+300:          //       [4:0] 每bit: 0=使能中断 1=屏蔽中断 / [4:0] Each bit: 0=enable interrupt, 1=mask interrupt
+301:#define M5PM1_REG_IRQ_MASK2 0x44  // R/W   系统中断屏蔽 / System interrupt mask
+302:#define M5PM1_REG_IRQ_MASK3 0x45  // R/W   按钮中断屏蔽 / Button interrupt mask
+357:          //       Data retained during sleep, for storing small important data
+367:    0x0F  // I2C睡眠超时掩码 / I2C sleep timeout mask
+442:                                  // Interrupt trigger function
+444:                                  // Wake function
+472: * @brief GPIO唤醒边沿配置 / GPIO wake edge configuration
+476:                                  // Wake on falling edge
+478:                                  // Wake on rising edge
+479:} m5pm1_gpio_wake_edge_t;
+508: * @brief 当前供电源 / Current power source
+516:                                // Battery power
+518:                                // Unknown/no power
+522: * @brief 唤醒源标志 / Wake source flags
+528:                                     // Timer wake
+530:                                     // VIN insertion wake
+532:                                     // Power button wake
+534:                                     // Reset button wake
+536:                                     // Command reset wake
+538:                                     // External GPIO wake
+540:                                     // 5VINOUT insertion wake
+541:} m5pm1_wake_src_t;
+570:                                       // Power on
+572:                                       // Power off
+622:                                    // Don't mask (Enable interrupt)
+624:                                    // Mask interrupt (Disable interrupt)
+630: *       PM1 defaults to 100KHz on power-up, switching to 400KHz requires
+660: *       AW8737A is an audio power amplifier, gain is set by pulse count
+708: * @note 用于 getWakeSource(), irqGetGpioStatus(), irqGetSysStatus(), irqGetBtnStatus()
+709: *       Used for getWakeSource(), irqGetGpioStatus(), irqGetSysStatus(), irqGetBtnStatus()
+726: *        GPIO interrupt flag bits
+732:                                 // GPIO0 interrupt flag
+734:                                 // GPIO1 interrupt flag
+736:                                 // GPIO2 interrupt flag
+738:                                 // GPIO3 interrupt flag
+740:                                 // GPIO4 interrupt flag
+742:                                 // All GPIO interrupt flags
+744:                                 // No interrupt
+749: *        Button interrupt status bitmask
+757:                                      // Wakeup event
+761:                                      // All button interrupt flags
+763:                                      // No interrupt
+772: *        System interrupt flag bits
+790:                                              // All system interrupt flags
+792:                                              // No interrupt
+797:// Power Configuration Bitmask Enumeration
+801: *        Power configuration bitmask
+802: * @note 用于 setPowerConfig(), getPowerConfig()
+803: *       Used for setPowerConfig(), getPowerConfig()
+813:                                        // BOOST/GROVE(5VINOUT) power hold (hardware dependent)
+825: * @note 用于 gpioSetOutput()
+826: *       Used for gpioSetOutput()
+905:    bool wake_en;                      ///< 唤醒使能 / Wake enabled
+906:    m5pm1_gpio_wake_edge_t wake_edge;  ///< 唤醒边沿 / Wake edge (RISING/FALLING)
+908:    bool power_hold;                   ///< 电源保持状态 / Power hold state
+966:    bool power_mismatch;         // 电源配置快照不一致
+967:                                 // Power config snapshot mismatch
+1284:    m5pm1_err_t gpioSet(m5pm1_gpio_num_t pin, m5pm1_gpio_mode_t mode, uint8_t value, m5pm1_gpio_pull_t pull,
+1299:    m5pm1_err_t gpioSetFunc(m5pm1_gpio_num_t pin, m5pm1_gpio_func_t func);
+1311:    m5pm1_err_t gpioSetMode(m5pm1_gpio_num_t pin, m5pm1_gpio_mode_t mode);
+1325:    m5pm1_err_t gpioSetOutput(m5pm1_gpio_num_t pin, uint8_t value);
+1337:    m5pm1_err_t gpioGetInput(m5pm1_gpio_num_t pin, uint8_t* value);
+1349:    m5pm1_err_t gpioSetPull(m5pm1_gpio_num_t pin, m5pm1_gpio_pull_t pull);
+1361:    m5pm1_err_t gpioSetDrive(m5pm1_gpio_num_t pin, m5pm1_gpio_drive_t drive);
+1365:     *        Set GPIO wake enable
+1369:     *               true to enable wake, false to disable
+1373:     *       Wake function is used to wake device from sleep mode
+1375:    m5pm1_err_t gpioSetWakeEnable(m5pm1_gpio_num_t pin, bool enable);
+1379:     *        Set GPIO wake edge
+1383:     *             Wake edge: M5PM1_GPIO_WAKE_FALLING / RISING
+1387:    m5pm1_err_t gpioSetWakeEdge(m5pm1_gpio_num_t pin, m5pm1_gpio_wake_edge_t edge);
+1434:    // Power Hold Functions
+1438:     *        Set GPIO power hold function
+1442:     *               true=enable power hold, false=disable power hold
+1446:     *       When enabled, the GPIO will remain powered even if power-off button is pressed
+1448:    m5pm1_err_t gpioSetPowerHold(m5pm1_gpio_num_t pin, bool enable);
+1452:     *        Get GPIO power hold function state
+1460:    m5pm1_err_t gpioGetPowerHold(m5pm1_gpio_num_t pin, bool* enable);
+1464:     *        Set LDO 3.3V power hold function
+1466:     *               true=enable power hold, false=disable power hold
+1470:     *       When enabled, LDO 3.3V will remain powered even if power-off button is pressed
+1472:    m5pm1_err_t ldoSetPowerHold(bool enable);
+1476:     *        Get LDO 3.3V power hold function state
+1482:    m5pm1_err_t ldoGetPowerHold(bool* enable);
+1486:     *        Set DCDC 5V power hold function
+1488:     *               true=enable power hold, false=disable power hold
+1492:     *       When enabled, DCDC 5V will remain powered even if power-off button is pressed
+1494:    m5pm1_err_t boostSetPowerHold(bool enable);
+1498:     *        Get DCDC 5V power hold function state
+1504:    m5pm1_err_t boostGetPowerHold(bool* enable);
+1541:     *       Disabling ADC can reduce power consumption
+1738:     *       Can be used to detect if external power is connected
+1754:    // Power Management
+1758:     *        Get current power source
+1760:     * M5PM1_PWR_SRC_UNKNOWN Output parameter, stores power source: M5PM1_PWR_SRC_5VIN / M5PM1_PWR_SRC_5VINOUT /
+1765:    m5pm1_err_t getPowerSource(m5pm1_pwr_src_t* src);
+1769:     *        Read wake source
+1771:     *            Output: wake source bitmask
+1777:     *                  - M5PM1_CLEAN_ONCE: Clear wake source bits read this time
+1779:     *                  - M5PM1_CLEAN_ALL: Clear all wake source bits
+1783:    m5pm1_err_t getWakeSource(uint8_t* src, m5pm1_clean_type_t cleanType = M5PM1_CLEAN_NONE);
+1787:     *        Clear wake source flags
+1789:     *             Wake source bitmask to clear
+1793:    m5pm1_err_t clearWakeSource(uint8_t mask);
+1797:     *        Set power configuration register
+1805:    m5pm1_err_t setPowerConfig(uint8_t mask, uint8_t value);
+1809:     *        Get power configuration register
+1811:     *               Output parameter, stores power configuration value
+1815:    m5pm1_err_t getPowerConfig(uint8_t* config);
+1818:     * @brief 清除电源配置位 / Clear power config bits
+1822:    m5pm1_err_t clearPowerConfig(uint8_t mask);
+1940:     *               - M5PM1_TIM_ACTION_POWERON: 开机 / Power on
+1941:     *               - M5PM1_TIM_ACTION_POWEROFF: 关机 / Power off
+2026:     *        Set double click power-off function disable
+2028:     *                true=disable double click power-off, false=enable double click power-off
+2032:     *       After disabling, double click will not trigger system power-off
+2038:     *        Get double click power-off function disable state
+2052:     *        Read GPIO interrupt status
+2070:     *        Read GPIO interrupt status (returns enum, user-friendly)
+2080:     *                  - M5PM1_CLEAN_ALL: Clean all GPIO interrupts
+2086:     *       Use M5PM1_CLEAN_ONCE to handle multiple interrupts one by one
+2088:     *       Returns M5PM1_IRQ_GPIO_NONE if no interrupt
+2094:     *        Clear all GPIO interrupt status
+2102:     *        Read system interrupt status
+2120:     *        Read system interrupt status (returns enum, user-friendly)
+2130:     *                  - M5PM1_CLEAN_ALL: Clean all system interrupts
+2136:     *       Use M5PM1_CLEAN_ONCE to handle multiple interrupts one by one
+2138:     *       Returns M5PM1_IRQ_SYS_NONE if no interrupt
+2144:     *        Clear all system interrupt status
+2152:     *        Read button interrupt status
+2170:     *        Read button interrupt status (returns enum, user-friendly)
+2180:     *                  - M5PM1_CLEAN_ALL: Clean all button interrupts
+2186:     *       Use M5PM1_CLEAN_ONCE to handle multiple interrupts one by one
+2188:     *       Returns M5PM1_IRQ_BTN_NONE if no interrupt
+2194:     *        Clear all button interrupt status
+2201:     * @brief Set single GPIO pin interrupt mask
+2212:     *        Get single GPIO pin interrupt mask state
+2214:     *             GPIO interrupt flag (M5PM1_IRQ_GPIO0 ~ M5PM1_IRQ_GPIO4)
+2226:     * @brief 一次性设置所有 GPIO 中断屏蔽 / Set all GPIO interrupt mask at once
+2236:     *        Get all GPIO interrupt mask state
+2245:     * @brief Set single system event interrupt mask
+2259:     *        Get single system event interrupt mask state
+2273:     * @brief 一次性设置所有系统中断屏蔽 / Set all system interrupt mask at once
+2283:     *        Get all system interrupt mask state
+2292:     * @brief Set single button event interrupt mask
+2306:     *        Get single button event interrupt mask state
+2320:     * @brief 一次性设置所有按钮中断屏蔽 / Set all button interrupt mask at once
+2329:     *        Get all button interrupt mask state
+2471:     *       LEDs will turn off after disabling, reducing power consumption
+2572:     *       RTC RAM has 32 bytes total, data persists during power-off and sleep
+2588:     *       RTC RAM has 32 bytes total, data persists during power-off and sleep
+2598:     *        Configure I2C parameters (sleep time and speed)
+2599:     * @param sleepTime I2C 睡眠时间（秒），超时后进入低功耗模式
+2600:     *                  I2C sleep time (seconds), enter low power mode after timeout
+2608:    m5pm1_err_t setI2cConfig(uint8_t sleepTime, m5pm1_i2c_speed_t speed = M5PM1_I2C_SPEED_100K);
+2634:     *        Set I2C sleep time
+2636:     *                Sleep time (seconds), enter low power mode after timeout
+2640:    m5pm1_err_t setI2cSleepTime(uint8_t seconds);
+2644:     *        Get I2C sleep time
+2646:     *                Output parameter, stores sleep time (seconds)
+2650:    m5pm1_err_t getI2cSleepTime(uint8_t* seconds);
+2654:    // Auto Wake Feature
+2658:     *        Enable/disable automatic wake signal before I2C operations
+2659:     * @param enable true to enable auto-wake, false to disable
+2662:     *       When PM1 enters sleep mode (I2C sleep timeout), it needs a
+2663:     *       START signal on SDA to wake up. This feature automatically
+2664:     *       sends the wake signal when needed.
+2669:     *       can wake the device. Enable this for guaranteed reliability.
+2671:    void setAutoWakeEnable(bool enable);
+2674:     * @brief 检查自动唤醒是否启用 / Check if auto wake is enabled
+2677:    bool isAutoWakeEnabled() const;
+2680:     * @brief 手动发送唤醒信号到 PM1 / Manually send wake signal to PM1
+2683:    m5pm1_err_t sendWakeSignal();
+2784:     *        Get cached power configuration
+2792:    m5pm1_err_t getCachedPowerConfig(uint8_t* pwrCfg, uint8_t* holdCfg);
+2806:     *        Get cached interrupt mask state
+2819:     *        Get cached interrupt status
+2836:    bool _autoWakeEnabled;
+2838:    uint8_t _i2cSleepTime;
+2841:        uint8_t sleepTime;
+2867:    // Power config cache
+2868:    uint8_t _powerCfg;
+2870:    bool _powerConfigValid;
+2976:    bool _hasActiveWake(uint8_t pin);
+2979:    void _checkAutoWake();
+2984:    void _clearPowerConfig();
+2992:    bool _snapshotPowerConfig();
+
+================================================================
+M5PM1 examples related to interrupt/sleep
+================================================================
+
+$ find components/M5PM1/examples -type f
+components/M5PM1/examples/gpio_pwm/gpio_pwm.ino
+components/M5PM1/examples/neopixel/neopixel.ino
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino
+components/M5PM1/examples/basic_power_adc/basic_power_adc.ino
+
+$ grep -R sleep\|Sleep\|interrupt\|Interrupt\|wake\|Wake\|gpioSet\|gpioGet\|power\|Power -n components/M5PM1/examples
+components/M5PM1/examples/neopixel/neopixel.ino:21: *     pm1.gpioSetFunc(M5PM1_GPIO_NUM_0, M5PM1_GPIO_FUNC_OTHER);
+components/M5PM1/examples/neopixel/neopixel.ino:22: *     pm1.gpioSetDrive(M5PM1_GPIO_NUM_0, M5PM1_GPIO_DRIVE_PUSHPULL);
+components/M5PM1/examples/neopixel/neopixel.ino:23: *     pm1.gpioSetOutput(M5PM1_GPIO_NUM_0, true);
+components/M5PM1/examples/neopixel/neopixel.ino:112:    pm1.gpioSetFunc(M5PM1_GPIO_NUM_0, M5PM1_GPIO_FUNC_OTHER);
+components/M5PM1/examples/neopixel/neopixel.ino:115:    pm1.gpioSetDrive(M5PM1_GPIO_NUM_0, M5PM1_GPIO_DRIVE_PUSHPULL);
+components/M5PM1/examples/neopixel/neopixel.ino:118:    pm1.gpioSetOutput(M5PM1_GPIO_NUM_0, true);
+components/M5PM1/examples/neopixel/neopixel.ino:129:    // setLedEnLevel() is mainly for the Stamp-S3Bat product, which uses the default indicator LED pin as the power supply pin for RGB.
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:12: * USB Plug/Unplug Interrupt/Shutdown & Wake Demo.
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:21: * 1. Print wake source on startup.
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:24: * 4. Set 10s timer wake up before shutdown, auto wake up after 10s.
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:62:static void printWakeSource(uint8_t src)
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:64:    LOGI("Wake source mask: 0x%02X", src);
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:74:static void enterSleep()
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:79:    // Configure 10s timer wake up first
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:94:    LOGW("Shutdown now. Wake by %us timer", WAKE_TIMER_SEC);
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:104:    LOGI("USB Interrupt + Sleep demo start");
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:119:    // Read and clear wake source once for debugging this boot reason.
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:120:    uint8_t wakeSrc = 0;
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:121:    if (pm1.getWakeSource(&wakeSrc, M5PM1_CLEAN_ONCE) == M5PM1_OK) {
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:122:        printWakeSource(wakeSrc);
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:142:    pm1.gpioSetFunc(PM1_GPIO_IRQ_PIN, M5PM1_GPIO_FUNC_IRQ);
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:145:    // Setup ESP32 interrupt pin to receive IRQ signal from PM1.
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:147:    attachInterrupt(PM1_ESP_IRQ_GPIO, pm1_irq_handler, FALLING);
+components/M5PM1/examples/usb_interrupt_sleep/usb_interrupt_sleep.ino:167:                    enterSleep();
+components/M5PM1/examples/basic_power_adc/basic_power_adc.ino:12: * Basic power/ADC demo: read device info, voltages, ADC/temp, and toggle rails.
+components/M5PM1/examples/basic_power_adc/basic_power_adc.ino:21: * Note: toggling DCDC/LDO/5VINOUT may affect external loads; typically DCDC powers the chip, disabling it may cause
+components/M5PM1/examples/basic_power_adc/basic_power_adc.ino:22: * immediate power loss.
+components/M5PM1/examples/basic_power_adc/basic_power_adc.ino:72:static void printPowerConfig(uint8_t cfg)
+components/M5PM1/examples/basic_power_adc/basic_power_adc.ino:74:    LOGI("Power CFG: CHG=%s DCDC=%s LDO=%s 5V=%s", (cfg & PWR_CFG_CHG) ? "ON" : "OFF",
+components/M5PM1/examples/basic_power_adc/basic_power_adc.ino:78:static void demoPowerRails()
+components/M5PM1/examples/basic_power_adc/basic_power_adc.ino:81:    if (pm1.getPowerConfig(&cfg) != M5PM1_OK) {
+components/M5PM1/examples/basic_power_adc/basic_power_adc.ino:82:        LOGW("Get power config failed");
+components/M5PM1/examples/basic_power_adc/basic_power_adc.ino:86:    LOGI("Power rail demo start (only enable)");
+components/M5PM1/examples/basic_power_adc/basic_power_adc.ino:87:    printPowerConfig(cfg);
+components/M5PM1/examples/basic_power_adc/basic_power_adc.ino:108:    if (pm1.getPowerConfig(&cfg) == M5PM1_OK) {
+components/M5PM1/examples/basic_power_adc/basic_power_adc.ino:109:        printPowerConfig(cfg);
+components/M5PM1/examples/basic_power_adc/basic_power_adc.ino:111:    LOGI("Power rail demo done");
+components/M5PM1/examples/basic_power_adc/basic_power_adc.ino:159:    LOGI("Basic + ADC + Power demo start");
+components/M5PM1/examples/basic_power_adc/basic_power_adc.ino:172:    demoPowerRails();
+components/M5PM1/examples/basic_power_adc/basic_power_adc.ino:177:    pm1.gpioSetFunc(M5PM1_GPIO_NUM_1, M5PM1_GPIO_FUNC_OTHER);
+components/M5PM1/examples/basic_power_adc/basic_power_adc.ino:178:    pm1.gpioSetFunc(M5PM1_GPIO_NUM_2, M5PM1_GPIO_FUNC_OTHER);
+
+================================================================
+Factory/default PMG0 risk notes from current firmware
+================================================================
+
+Known current-firmware note:
+- main/hal/hal_pmic.cpp intentionally keeps PMG0 in factory/default PMIC configuration.
+- Comment says configuring PMG0 as explicit wake-function input caused power-button double-click to reboot instead of power off.
+- Therefore next code phase should not write PMG0 wake config until M5PM1 API behavior and conflict rules are understood.
+
+Questions this report should answer:
+1. Which M5PM1 APIs configure GPIO wake?
+2. Does the library expose debounce, latch, edge selection, or filter controls for wake GPIOs?
+3. Are PMG0 and PMG2 mutually exclusive wake sources?
+4. Does PMG0 wake mode conflict with PMIC built-in power button behavior?
+5. Is there a documented/example path for interrupt sleep that preserves double-click power-off?
+
+
+================================================================
+Suggested next grep commands if report is incomplete
+================================================================
+grep -R "wake" -n components/M5PM1
+grep -R "gpioSet" -n components/M5PM1/src
+grep -R "M5PM1_GPIO_NUM_0" -n components/M5PM1
+grep -R "_hasActiveWake" -n components/M5PM1
+grep -R "interrupt_sleep" -n components/M5PM1/examples
