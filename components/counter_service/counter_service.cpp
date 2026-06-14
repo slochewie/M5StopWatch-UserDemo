@@ -25,6 +25,8 @@ static constexpr const char* TIME_TOPIC = "system/time/epoch";
 static constexpr const char* LOCAL_TIMEZONE = "PST8PDT,M3.2.0,M11.1.0";
 static constexpr time_t MIN_VALID_EPOCH = 1700000000;  // 2023-11-14 sanity floor.
 static constexpr uint32_t BATTERY_SKIP_LOG_INTERVAL_MS = 30000;
+static constexpr uint32_t BATTERY_PUBLISH_HEARTBEAT_MS = 300000;
+static constexpr uint8_t BATTERY_UNKNOWN_PERCENT = 0xFF;
 
 device_config::Config s_config;
 std::string s_counter_topic;
@@ -35,6 +37,8 @@ bool s_has_latest = false;
 int32_t s_latest_value = 0;
 portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 uint32_t s_last_battery_skip_log_ms = 0;
+uint32_t s_last_battery_publish_ms = 0;
+uint8_t s_last_battery_publish_percent = BATTERY_UNKNOWN_PERCENT;
 
 void applyLocalTimezone()
 {
@@ -386,6 +390,16 @@ bool publishBatteryPercentage(uint8_t percent)
         percent = 100;
     }
 
+    const uint32_t now = GetHAL().millis();
+    const bool percent_changed = s_last_battery_publish_percent == BATTERY_UNKNOWN_PERCENT ||
+                                 percent != s_last_battery_publish_percent;
+    const bool heartbeat_due = s_last_battery_publish_ms == 0 ||
+                               now - s_last_battery_publish_ms >= BATTERY_PUBLISH_HEARTBEAT_MS;
+
+    if (!percent_changed && !heartbeat_due) {
+        return true;
+    }
+
     char payload[128];
     std::snprintf(payload,
                   sizeof(payload),
@@ -395,6 +409,8 @@ bool publishBatteryPercentage(uint8_t percent)
 
     const bool ok = common::mqtt::publish(s_battery_topic.c_str(), payload, 1, true);
     if (ok) {
+        s_last_battery_publish_ms = now;
+        s_last_battery_publish_percent = percent;
         ESP_LOGI(TAG, "Published %s = %u", s_battery_topic.c_str(), static_cast<unsigned>(percent));
     }
     return ok;

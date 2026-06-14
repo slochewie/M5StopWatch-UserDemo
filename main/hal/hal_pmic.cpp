@@ -34,8 +34,8 @@ uint8_t battery_millivolts_to_percent(uint16_t millivolts)
     return static_cast<uint8_t>(std::min<uint32_t>(scaled, 100U));
 }
 
-constexpr uint32_t _bat_reading_awake_period_ms = 1000;
-constexpr uint32_t _bat_reading_sleep_period_ms = 60000;
+constexpr uint32_t _bat_reading_awake_period_ms = 60000;
+constexpr uint32_t _bat_reading_sleep_period_ms = 600000;
 constexpr uint16_t _bat_filter_weight_old = 7;
 constexpr uint16_t _bat_filter_weight_new = 1;
 constexpr uint16_t _bat_filter_weight_sum = _bat_filter_weight_old + _bat_filter_weight_new;
