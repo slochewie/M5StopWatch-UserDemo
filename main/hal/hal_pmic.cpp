@@ -133,7 +133,8 @@ void Hal::pmic_init()
 
     _pm1->setI2cSleepTime(0);
     _pm1->setI2cSleepTime(0);
-
+    _pm1->setLedEnLevel(false);
+   
     uint8_t boot_wake_src = 0;
     if (_pm1->getWakeSource(&boot_wake_src, M5PM1_CLEAN_ONCE) == M5PM1_OK) {
         mclog::tagInfo(_tag, "PMIC boot wake source: 0x{:02X}", static_cast<int>(boot_wake_src));
