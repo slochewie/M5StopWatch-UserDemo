@@ -7,6 +7,7 @@
 
 #include <esp_err.h>
 #include <esp_log.h>
+#include <esp_timer.h>
 #include <mqtt_client.h>
 
 namespace common::mqtt {
@@ -15,6 +16,11 @@ namespace {
 static constexpr const char* TAG = "MqttService";
 static constexpr size_t MAX_SUBSCRIPTIONS = 16;
 static constexpr size_t MAX_PAYLOAD_SIZE = 512;
+
+// Avoid forcing esp_mqtt_client_reconnect() while esp-mqtt is still performing
+// its initial connection attempt after esp_mqtt_client_start().
+static constexpr uint64_t INITIAL_CONNECT_GRACE_US = 15000000ULL;  // 15 seconds
+static constexpr uint64_t RECOVERY_RECONNECT_INTERVAL_US = 5000000ULL;  // 5 seconds
 
 struct Subscription {
     std::string topic;
@@ -27,9 +33,16 @@ Config s_config;
 esp_mqtt_client_handle_t s_client = nullptr;
 bool s_started = false;
 bool s_connected = false;
-bool s_ever_connected = false;
+bool s_connected_since_start = false;
 bool s_recovery_paused = false;
+uint64_t s_client_start_us = 0;
+uint64_t s_last_reconnect_request_us = 0;
 std::vector<Subscription> s_subscriptions;
+
+uint64_t nowUs()
+{
+    return static_cast<uint64_t>(esp_timer_get_time());
+}
 
 bool topicMatches(const char* event_topic, int event_topic_len, const std::string& topic)
 {
@@ -85,7 +98,8 @@ void eventHandler(void* handler_args, esp_event_base_t base, int32_t event_id, v
     switch (event_id) {
         case MQTT_EVENT_CONNECTED:
             s_connected = true;
-            s_ever_connected = true;
+            s_connected_since_start = true;
+            s_last_reconnect_request_us = 0;
             ESP_LOGI(TAG, "Connected");
             subscribeAll();
             break;
@@ -109,6 +123,17 @@ void eventHandler(void* handler_args, esp_event_base_t base, int32_t event_id, v
     }
 }
 
+bool reconnectThrottleAllows(uint64_t now)
+{
+    if (s_last_reconnect_request_us != 0 &&
+        now - s_last_reconnect_request_us < RECOVERY_RECONNECT_INTERVAL_US) {
+        return false;
+    }
+
+    s_last_reconnect_request_us = now;
+    return true;
+}
+
 }  // namespace
 
 bool begin(const Config& config)
@@ -116,7 +141,9 @@ bool begin(const Config& config)
     s_config = config;
 
     if (s_started) {
-        recoverConnection();
+        // esp_mqtt_client_start() already begins the connection process.
+        // Do not call recoverConnection() here; that can force a reconnect while
+        // the MQTT task is still performing its first connection attempt.
         return true;
     }
 
@@ -145,6 +172,10 @@ bool begin(const Config& config)
 
     esp_mqtt_client_register_event(s_client, MQTT_EVENT_ANY, eventHandler, nullptr);
 
+    s_connected = false;
+    s_connected_since_start = false;
+    s_last_reconnect_request_us = 0;
+
     const esp_err_t err = esp_mqtt_client_start(s_client);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start MQTT client: %s", esp_err_to_name(err));
@@ -152,6 +183,7 @@ bool begin(const Config& config)
     }
 
     s_started = true;
+    s_client_start_us = nowUs();
     ESP_LOGI(TAG, "Started: %s", s_config.uri.c_str());
     return true;
 }
@@ -174,23 +206,34 @@ void recoverConnection()
         return;
     }
 
-    if (!s_connected) {
-        // During initial startup, esp_mqtt_client_start() already begins the
-        // first connection attempt. Do not force a reconnect before the client
-        // has ever connected; that only creates noisy "Client force reconnect"
-        // logs while the MQTT task is still starting.
-        if (!s_ever_connected) {
-            return;
-        }
+    if (s_connected) {
+        return;
+    }
 
-        ESP_LOGI(TAG, "MQTT recovery requested");
-        const esp_err_t err = esp_mqtt_client_reconnect(s_client);
-        if (err != ESP_OK) {
-            ESP_LOGW(TAG, "esp_mqtt_client_reconnect failed: %s", esp_err_to_name(err));
-        }
+    const uint64_t now = nowUs();
+
+    if (!s_connected_since_start &&
+        s_client_start_us != 0 &&
+        now - s_client_start_us < INITIAL_CONNECT_GRACE_US) {
+        // Initial connection is still in progress. Let esp-mqtt finish its own
+        // first connection attempt instead of spamming forced reconnects.
+        return;
+    }
+
+    if (!reconnectThrottleAllows(now)) {
+        return;
+    }
+
+    ESP_LOGI(TAG, "MQTT recovery requested");
+    const esp_err_t err = esp_mqtt_client_reconnect(s_client);
+    if (err == ESP_ERR_INVALID_STATE || err == ESP_FAIL) {
+        ESP_LOGD(TAG, "MQTT reconnect skipped while client is busy: %s", esp_err_to_name(err));
+        return;
+    }
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "esp_mqtt_client_reconnect failed: %s", esp_err_to_name(err));
     }
 }
-
 
 void setRecoveryPaused(bool paused)
 {
@@ -210,6 +253,9 @@ void setRecoveryPaused(bool paused)
 
         s_started = false;
         s_connected = false;
+        s_connected_since_start = false;
+        s_client_start_us = 0;
+        s_last_reconnect_request_us = 0;
     } else {
         ESP_LOGI(TAG, "MQTT recovery resumed");
     }
@@ -219,7 +265,6 @@ bool isRecoveryPaused()
 {
     return s_recovery_paused;
 }
-
 
 bool isStarted()
 {
