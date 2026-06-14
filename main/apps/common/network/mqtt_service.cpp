@@ -27,6 +27,7 @@ Config s_config;
 esp_mqtt_client_handle_t s_client = nullptr;
 bool s_started = false;
 bool s_connected = false;
+bool s_ever_connected = false;
 bool s_recovery_paused = false;
 std::vector<Subscription> s_subscriptions;
 
@@ -84,6 +85,7 @@ void eventHandler(void* handler_args, esp_event_base_t base, int32_t event_id, v
     switch (event_id) {
         case MQTT_EVENT_CONNECTED:
             s_connected = true;
+            s_ever_connected = true;
             ESP_LOGI(TAG, "Connected");
             subscribeAll();
             break;
@@ -173,15 +175,16 @@ void recoverConnection()
     }
 
     if (!s_connected) {
-        ESP_LOGI(TAG, "MQTT recovery requested");
-        const esp_err_t err = esp_mqtt_client_reconnect(s_client);
-        if (err == ESP_ERR_INVALID_STATE || err == ESP_FAIL) {
-            // The esp-mqtt task may still be starting immediately after
-            // esp_mqtt_client_start(). In that state it will connect on its own;
-            // forcing reconnect only creates a harmless but noisy boot warning.
-            ESP_LOGD(TAG, "MQTT reconnect skipped while client is starting: %s", esp_err_to_name(err));
+        // During initial startup, esp_mqtt_client_start() already begins the
+        // first connection attempt. Do not force a reconnect before the client
+        // has ever connected; that only creates noisy "Client force reconnect"
+        // logs while the MQTT task is still starting.
+        if (!s_ever_connected) {
             return;
         }
+
+        ESP_LOGI(TAG, "MQTT recovery requested");
+        const esp_err_t err = esp_mqtt_client_reconnect(s_client);
         if (err != ESP_OK) {
             ESP_LOGW(TAG, "esp_mqtt_client_reconnect failed: %s", esp_err_to_name(err));
         }
