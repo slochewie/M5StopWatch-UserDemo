@@ -227,9 +227,11 @@ bool applyConfig()
         return false;
     }
 
-    err = esp_wifi_set_ps(WIFI_PS_NONE);
+    err = esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "esp_wifi_set_ps failed: %s", esp_err_to_name(err));
+        ESP_LOGW(TAG, "esp_wifi_set_ps(WIFI_PS_MIN_MODEM) failed: %s", esp_err_to_name(err));
+    } else {
+        ESP_LOGI(TAG, "Wi-Fi power save enabled: WIFI_PS_MIN_MODEM");
     }
 
     return true;
