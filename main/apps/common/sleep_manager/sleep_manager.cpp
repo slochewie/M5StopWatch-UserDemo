@@ -187,7 +187,12 @@ void disconnectNetworkForSleep()
 
 void restoreNetworkAfterWake()
 {
-    mclog::tagInfo(TAG, "network wake: start radio and resume MQTT/Wi-Fi");
+    mclog::tagInfo(TAG, "network wake: resume Wi-Fi recovery, start radio, then resume MQTT");
+
+    // Resume Wi-Fi recovery before esp_wifi_start(). WIFI_EVENT_STA_START may be
+    // delivered synchronously/quickly after start, and the Wi-Fi service should
+    // be allowed to auto-connect from that event instead of skipping it.
+    common::wifi::setRecoveryPaused(false);
 
     const esp_err_t start_err = esp_wifi_start();
     if (start_err != ESP_OK &&
@@ -196,7 +201,8 @@ void restoreNetworkAfterWake()
         mclog::tagWarn(TAG, "esp_wifi_start failed: {}", esp_err_to_name(start_err));
     }
 
-    common::wifi::setRecoveryPaused(false);
+    // MQTT recovery is safe to resume after Wi-Fi is started. CounterService's
+    // periodic recovery tick will start MQTT once Wi-Fi has an IP again.
     common::mqtt::setRecoveryPaused(false);
 }
 

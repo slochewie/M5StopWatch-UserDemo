@@ -16,6 +16,7 @@
 #include <hal/utils/configure_ap/configure_ap.h>
 #include <cstdlib>
 #include <ctime>
+#include <esp_pm.h>
 
 using namespace mooncake;
 using namespace smooth_ui_toolkit;
@@ -23,6 +24,22 @@ using namespace smooth_ui_toolkit;
 namespace {
 
 static constexpr uint32_t NETWORK_RECOVERY_INTERVAL_MS = 5000;
+
+void configureCpuPowerManagement()
+{
+    esp_pm_config_t pm_config = {
+        .max_freq_mhz = 240,
+        .min_freq_mhz = 80,
+        .light_sleep_enable = false,
+    };
+
+    const esp_err_t err = esp_pm_configure(&pm_config);
+    if (err == ESP_OK) {
+        mclog::tagInfo("Power", "CPU frequency scaling enabled: 80-240 MHz");
+    } else {
+        mclog::tagWarn("Power", "CPU frequency scaling setup failed: {}", static_cast<int>(err));
+    }
+}
 
 void setLocalTimezone()
 {
@@ -52,6 +69,7 @@ void runSystemNetworkTick()
 extern "C" void app_main(void)
 {
     setLocalTimezone();
+    configureCpuPowerManagement();
 
     mclog::set_level(mclog::level_info);
     mclog::set_time_format(mclog::time_format_unix_milliseconds);
