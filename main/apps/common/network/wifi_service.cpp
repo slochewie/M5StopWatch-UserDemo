@@ -17,7 +17,7 @@ namespace {
 static constexpr const char* TAG = "WifiService";
 static constexpr int WIFI_CONNECTED_BIT = BIT0;
 static constexpr uint32_t WIFI_CONNECT_WAIT_MS = 15000;
-static constexpr int DHCP_STALL_RECONNECT_THRESHOLD = 2;
+static constexpr int DHCP_STALL_RECONNECT_THRESHOLD = 5;
 
 Config s_config;
 EventGroupHandle_t s_event_group = nullptr;
@@ -28,9 +28,40 @@ bool s_initialized = false;
 bool s_started = false;
 bool s_connected = false;
 bool s_associated = false;
+bool s_connecting = false;
 bool s_recovery_paused = false;
 int s_retry_count = 0;
 int s_dhcp_stall_count = 0;
+
+bool requestConnect(const char* reason)
+{
+    if (s_recovery_paused) {
+        ESP_LOGI(TAG, "Wi-Fi connect skipped; recovery paused");
+        return false;
+    }
+
+    if (s_connected || s_associated || s_connecting) {
+        ESP_LOGD(TAG,
+                 "Wi-Fi connect skipped; already connected/associated/connecting during %s",
+                 reason == nullptr ? "unknown" : reason);
+        return false;
+    }
+
+    if (reason != nullptr) {
+        ESP_LOGI(TAG, "Wi-Fi connect requested: %s", reason);
+    }
+
+    const esp_err_t err = esp_wifi_connect();
+    if (err == ESP_OK || err == ESP_ERR_WIFI_CONN) {
+        s_connecting = true;
+        return true;
+    }
+
+    ESP_LOGW(TAG, "esp_wifi_connect failed during %s: %s",
+             reason == nullptr ? "unknown" : reason,
+             esp_err_to_name(err));
+    return false;
+}
 
 bool ensureNetworkStackReady()
 {
@@ -72,9 +103,10 @@ void eventHandler(void* arg, esp_event_base_t event_base, int32_t event_id, void
         s_started = true;
         s_connected = false;
         s_associated = false;
+        s_connecting = false;
         ESP_LOGI(TAG, "Wi-Fi STA started");
         if (!s_recovery_paused) {
-            esp_wifi_connect();
+            requestConnect("sta-start");
         } else {
             ESP_LOGI(TAG, "Wi-Fi recovery paused; STA start will not auto-connect");
         }
@@ -85,6 +117,7 @@ void eventHandler(void* arg, esp_event_base_t event_base, int32_t event_id, void
         auto* event = static_cast<wifi_event_sta_connected_t*>(event_data);
         s_associated = true;
         s_connected = false;
+        s_connecting = false;
         ESP_LOGI(TAG,
                  "Wi-Fi associated: ssid=%s channel=%u bssid=%02x:%02x:%02x:%02x:%02x:%02x",
                  event->ssid,
@@ -114,10 +147,7 @@ void eventHandler(void* arg, esp_event_base_t event_base, int32_t event_id, void
                  "Wi-Fi disconnected, reconnect attempt %d, reason=%d",
                  s_retry_count,
                  event == nullptr ? -1 : static_cast<int>(event->reason));
-        const esp_err_t err = esp_wifi_connect();
-        if (err != ESP_OK && err != ESP_ERR_WIFI_CONN) {
-            ESP_LOGW(TAG, "esp_wifi_connect failed: %s", esp_err_to_name(err));
-        }
+        requestConnect("disconnect-recovery");
         return;
     }
 
@@ -127,6 +157,7 @@ void eventHandler(void* arg, esp_event_base_t event_base, int32_t event_id, void
         s_dhcp_stall_count = 0;
         s_associated = true;
         s_connected = true;
+        s_connecting = false;
         ESP_LOGI(TAG, "Wi-Fi got IP: " IPSTR, IP2STR(&event->ip_info.ip));
         if (s_event_group != nullptr) {
             xEventGroupSetBits(s_event_group, WIFI_CONNECTED_BIT);
@@ -136,6 +167,7 @@ void eventHandler(void* arg, esp_event_base_t event_base, int32_t event_id, void
 
     if (event_base == IP_EVENT && event_id == IP_EVENT_STA_LOST_IP) {
         s_connected = false;
+        s_connecting = false;
         if (s_event_group != nullptr) {
             xEventGroupClearBits(s_event_group, WIFI_CONNECTED_BIT);
         }
@@ -245,17 +277,23 @@ void reconnectAfterDhcpStall()
     }
 
     ++s_dhcp_stall_count;
-    ESP_LOGW(TAG,
-             "Wi-Fi associated but DHCP did not complete, stall %d/%d",
-             s_dhcp_stall_count,
-             DHCP_STALL_RECONNECT_THRESHOLD);
 
-    if (s_dhcp_stall_count >= DHCP_STALL_RECONNECT_THRESHOLD) {
-        s_dhcp_stall_count = 0;
-        ESP_LOGW(TAG, "Restarting Wi-Fi association after DHCP stall");
-        esp_wifi_disconnect();
-        esp_wifi_connect();
+    if (s_dhcp_stall_count < DHCP_STALL_RECONNECT_THRESHOLD) {
+        ESP_LOGD(TAG,
+                 "Wi-Fi associated, waiting for DHCP %d/%d",
+                 s_dhcp_stall_count,
+                 DHCP_STALL_RECONNECT_THRESHOLD);
+        return;
     }
+
+    s_dhcp_stall_count = 0;
+    ESP_LOGW(TAG,
+             "Wi-Fi DHCP did not complete after %d checks; restarting association",
+             DHCP_STALL_RECONNECT_THRESHOLD);
+    s_connecting = false;
+    s_associated = false;
+    esp_wifi_disconnect();
+    requestConnect("dhcp-stall");
 }
 
 }  // namespace
@@ -339,11 +377,7 @@ void recoverConnection()
             return;
         }
 
-        ESP_LOGI(TAG, "Wi-Fi recovery requested");
-        const esp_err_t err = esp_wifi_connect();
-        if (err != ESP_OK && err != ESP_ERR_WIFI_CONN) {
-            ESP_LOGW(TAG, "esp_wifi_connect failed: %s", esp_err_to_name(err));
-        }
+        requestConnect("recovery");
     }
 }
 
