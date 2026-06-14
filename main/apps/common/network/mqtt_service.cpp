@@ -168,9 +168,20 @@ void recoverConnection()
         return;
     }
 
+    if (!s_started) {
+        return;
+    }
+
     if (!s_connected) {
         ESP_LOGI(TAG, "MQTT recovery requested");
         const esp_err_t err = esp_mqtt_client_reconnect(s_client);
+        if (err == ESP_ERR_INVALID_STATE || err == ESP_FAIL) {
+            // The esp-mqtt task may still be starting immediately after
+            // esp_mqtt_client_start(). In that state it will connect on its own;
+            // forcing reconnect only creates a harmless but noisy boot warning.
+            ESP_LOGD(TAG, "MQTT reconnect skipped while client is starting: %s", esp_err_to_name(err));
+            return;
+        }
         if (err != ESP_OK) {
             ESP_LOGW(TAG, "esp_mqtt_client_reconnect failed: %s", esp_err_to_name(err));
         }
